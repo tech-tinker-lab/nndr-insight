@@ -143,7 +143,7 @@ class ComprehensiveIngestionPipeline:
             return False
     
     MASTER_GAZETTEER_COLUMNS = [
-        'uprn', 'ba_reference', 'property_address', 'street_descriptor',
+        'uprn', 'ba_reference', 'property_id', 'property_address', 'street_descriptor',
         'locality', 'post_town', 'administrative_area', 'postcode',
         'property_category_code', 'property_description', 'rateable_value',
         'effective_date', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude'
@@ -154,28 +154,40 @@ class ComprehensiveIngestionPipeline:
         for col in self.MASTER_GAZETTEER_COLUMNS:
             if col not in df.columns:
                 df[col] = None
+        
+        # Generate property_id from UPRN if not present
+        needs_property_id = 'property_id' not in df.columns
+        if not needs_property_id and 'property_id' in df.columns:
+            needs_property_id = df['property_id'].isna().all()
+        
+        if needs_property_id:
+            if 'uprn' in df.columns:
+                df['property_id'] = df['uprn'].astype(str)
+            else:
+                df['property_id'] = None
+        
         return df[self.MASTER_GAZETTEER_COLUMNS]
     
     def process_voa_data(self, file_path: str) -> pd.DataFrame:
         """Process VOA pipe-delimited data with enhanced field mapping"""
         logger.info(f"Processing VOA data: {file_path}")
         field_positions = {
-            'uprn': 25,
-            'ba_reference': 2,
-            'property_address': 6,
-            'street_descriptor': 10,
-            'locality': 12,
-            'post_town': 9,
-            'administrative_area': None,  # Not present
-            'postcode': 14,
-            'property_category_code': 4,
-            'property_description': 5,
-            'rateable_value': 17,
-            'effective_date': 26,
-            'x_coordinate': None,
-            'y_coordinate': None,
-            'latitude': None,
-            'longitude': None
+            'uprn': 19,  # UPRN is the primary property identifier
+            'ba_reference': 3,  # BA Reference is billing authority reference
+            'property_address': 7,  # Full address
+            'street_descriptor': 9,  # Street name
+            'locality': 11,  # Locality
+            'post_town': 10,  # Post town
+            'administrative_area': None,  # Not present in VOA data
+            'postcode': 14,  # Postcode
+            'property_category_code': 4,  # SCAT code
+            'property_description': 5,  # Property description
+            'rateable_value': 17,  # Rateable value
+            'effective_date': 15,  # Effective date
+            'x_coordinate': None,  # Not present in VOA data
+            'y_coordinate': None,  # Not present in VOA data
+            'latitude': None,  # Not present in VOA data
+            'longitude': None  # Not present in VOA data
         }
         data_rows = []
         chunk_size = 10000
@@ -185,13 +197,20 @@ class ComprehensiveIngestionPipeline:
                     if line_num % 100000 == 0:
                         logger.info(f"Processed {line_num} VOA lines")
                     fields = line.strip().split('*')
-                    if len(fields) < 27:
+                    if len(fields) < 29:  # VOA data has 29 fields
                         continue
                     try:
                         row = {}
                         for col in self.MASTER_GAZETTEER_COLUMNS:
                             pos = field_positions.get(col)
                             row[col] = fields[pos] if pos is not None else None
+                        
+                        # Generate property_id from UPRN (gazetteer standard)
+                        if row.get('uprn'):
+                            row['property_id'] = str(row['uprn'])
+                        else:
+                            row['property_id'] = None
+                        
                         # Type conversions
                         row['rateable_value'] = self._parse_rateable_value(row['rateable_value'])
                         row['effective_date'] = self._parse_date(row['effective_date'])
@@ -217,9 +236,10 @@ class ComprehensiveIngestionPipeline:
         try:
             chunk_size = 10000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
-                # Explicit mapping
-                chunk['uprn'] = chunk.get('UniquePropertyRef', None)
-                chunk['ba_reference'] = chunk.get('BAReference', None)
+                # Explicit mapping according to gazetteer standards
+                chunk['uprn'] = chunk.get('UniquePropertyRef', None)  # Primary identifier
+                chunk['ba_reference'] = chunk.get('BAReference', None)  # Billing reference
+                chunk['property_id'] = chunk['uprn'].astype(str) if 'uprn' in chunk.columns else None  # Derived from UPRN
                 chunk['property_address'] = chunk.get('PropertyAddress', None)
                 chunk['street_descriptor'] = chunk.get('StreetDescriptor', None)
                 chunk['locality'] = chunk.get('Locality', None)
@@ -247,8 +267,10 @@ class ComprehensiveIngestionPipeline:
         try:
             chunk_size = 50000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-                chunk['uprn'] = chunk.get('UPRN', None)
-                chunk['ba_reference'] = None
+                # OS UPRN data provides the primary property identifier
+                chunk['uprn'] = chunk.get('UPRN', None)  # Primary identifier
+                chunk['ba_reference'] = None  # Not provided by OS UPRN
+                chunk['property_id'] = chunk['uprn'].astype(str) if 'uprn' in chunk.columns else None  # Derived from UPRN
                 chunk['property_address'] = None
                 chunk['street_descriptor'] = None
                 chunk['locality'] = None
