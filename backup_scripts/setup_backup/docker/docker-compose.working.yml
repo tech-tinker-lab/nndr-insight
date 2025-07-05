@@ -1,27 +1,47 @@
 version: '3.8'
 services:
   db:
-    # Use official Kartoza PostGIS image (production-ready)
-    image: kartoza/postgis:17-3.5
+    # Use working Ubuntu-based PostGIS ARM64 image
+    build:
+      context: ../..
+      dockerfile: setup/docker/Dockerfile.postgis-arm64-working
+      platforms:
+        - linux/arm64
     platform: linux/arm64
     environment:
       POSTGRES_USER: nndr
       POSTGRES_PASSWORD: nndrpass
       POSTGRES_DB: nndr_db
-      # Basic PostGIS settings
+      # Performance optimizations
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Memory and performance settings
+      POSTGRES_SHARED_PRELOAD_LIBRARIES: "pg_stat_statements"
+      # Connection settings
+      POSTGRES_MAX_CONNECTIONS: "200"
+      # PostGIS specific settings
       POSTGIS_ENABLE_OUTDB_RASTERS: "1"
       POSTGIS_GDAL_ENABLED_DRIVERS: "ENABLE_ALL"
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    command: >
+      /usr/local/bin/start-postgis.sh
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nndr -d nndr_db"]
+      test: ["CMD", "su", "-", "postgres", "-c", "pg_isready"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
 
   # Optional: Add pgAdmin for database management
   pgadmin:
