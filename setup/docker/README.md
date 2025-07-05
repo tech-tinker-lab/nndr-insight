@@ -44,13 +44,19 @@ setup/docker/
 
 ### For Local Development
 
-1. **Simple Setup** (Recommended for ARM64):
+1. **Official Kartoza PostGIS** (Recommended for Production):
+   ```bash
+   cd setup/docker
+   docker compose -f docker-compose.official-kartoza.yml up -d
+   ```
+
+2. **Simple Setup** (Good for Development):
    ```bash
    cd setup/docker
    docker compose -f docker-compose.simple.yml up -d
    ```
 
-2. **Official PostGIS Image**:
+3. **Official PostGIS Image**:
    ```bash
    cd setup/docker
    docker compose -f docker-compose.official.yml up -d
@@ -58,13 +64,19 @@ setup/docker/
 
 ### For Remote Deployment
 
-1. **Deploy to Remote ARM64 Server**:
+1. **Deploy Official Kartoza PostGIS** (Recommended):
+   ```bash
+   # From project root directory
+   setup\docker\deploy-kartoza-official.bat
+   ```
+
+2. **Deploy Simple Setup**:
    ```bash
    # From project root directory
    setup\docker\deploy-postgis-simple.bat
    ```
 
-2. **Or use PowerShell**:
+3. **Or use PowerShell**:
    ```powershell
    # From project root directory
    .\setup\docker\deploy-simple.ps1
@@ -82,11 +94,21 @@ All docker-compose files have been updated to use relative paths from the `setup
 
 After successful deployment:
 
+### Official Kartoza PostGIS
 - **Host**: `localhost` (local) or your remote server IP
 - **Port**: `5432`
-- **Database**: `nndr_insight` (simple) or `nndr_db` (others)
-- **User**: `nndr_user` (simple) or `nndr` (others)
-- **Password**: `nndr_password` (simple) or `nndrpass` (others)
+- **Database**: `nndr_db`
+- **User**: `nndr`
+- **Password**: `nndrpass`
+- **PostGIS Version**: 3.5.x (latest)
+
+### Simple Setup
+- **Host**: `localhost` (local) or your remote server IP
+- **Port**: `5432`
+- **Database**: `nndr_insight`
+- **User**: `nndr_user`
+- **Password**: `nndr_password`
+- **PostGIS Version**: Package version (3.4.x)
 
 ## Troubleshooting
 
