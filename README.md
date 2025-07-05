@@ -1,28 +1,52 @@
 ## Database Setup Details
 
+The project uses PostgreSQL with PostGIS as the database, managed via Docker Compose. We recommend using the official Kartoza PostGIS image for production use.
 
+### Quick Start
 
-49c794c8-c91b-4d37-93da-87dec825878c
+```sh
+# From project root directory
+cd setup/docker
+docker-compose -f docker-compose.official-kartoza.yml up -d
+```
 
+### Database Configuration
 
-The project uses PostgreSQL as the database, managed via Docker Compose. The default configuration is:
-
-- **Image:** postgres:16
+- **Image:** kartoza/postgis:17-3.5 (recommended) or postgres:16 (simple)
 - **User:** nndr
 - **Password:** nndrpass
 - **Database:** nndr_db
 - **Port:** 5432 (exposed to host)
 - **Data Volume:** db_data (persists database data between container restarts)
 
-You can start the database with:
+### Performance Tuning for Large Datasets
+
+For optimal performance with large NNDR datasets, apply the included performance tuning:
 
 ```sh
-# From project root directory
-cd setup/docker
-docker compose -f docker-compose.simple.yml up -d
+# After starting the database
+cd setup/database/tuning
+./apply_tuning.sh  # Linux/macOS
+# or
+apply_tuning.bat   # Windows
 ```
 
-The database will be accessible at `localhost:5432` with the above credentials. Update the environment variables in `setup/docker/docker-compose.simple.yml` if you need to change the user, password, or database name.
+The tuning script optimizes:
+- Memory allocation (shared_buffers, work_mem, etc.)
+- WAL settings for better write performance
+- Query planner settings for SSD storage
+- Autovacuum settings for large tables
+- Connection and timeout settings
+
+See `setup/database/tuning/README.md` for detailed tuning documentation.
+
+### Available Docker Compose Files
+
+- `docker-compose.official-kartoza.yml` - Production-ready with Kartoza PostGIS
+- `docker-compose.simple.yml` - Simple setup with official PostgreSQL
+- `docker-compose.enhanced.yml` - Enhanced setup with monitoring and backups
+
+The database will be accessible at `localhost:5432` with the above credentials. Update the environment variables in the docker-compose files if you need to change the user, password, or database name.
 
 ## What Forms the Gazetteer?
 
