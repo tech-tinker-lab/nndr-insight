@@ -1,0 +1,120 @@
+# Simple ARM64 PostGIS image using Ubuntu packages
+FROM ubuntu:22.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required tools and add PostgreSQL official repository
+RUN apt-get update && apt-get install -y wget gnupg2 ca-certificates software-properties-common \
+    && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && add-apt-repository universe \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PostgreSQL and PostGIS from Ubuntu repositories
+RUN apt-get update && apt-get install -y \
+    postgresql-15 \
+    postgresql-15-postgis-3 \
+    postgresql-15-postgis-3-scripts \
+    postgresql-contrib \
+    libgeos-c1v5 \
+    libproj22 \
+    libgdal-dev \
+    libjson-c5 \
+    libxml2 \
+    libxslt1.1 \
+    libprotobuf-c1 \
+    libgeotiff5 \
+    libtiff-dev \
+    libjpeg-turbo8 \
+    libpng16-16 \
+    libwebp7 \
+    zlib1g \
+    libbz2-1.0 \
+    lz4 \
+    libzstd1 \
+    libssl3 \
+    libreadline8 \
+    libncurses6 \
+    libedit2 \
+    tcl \
+    tk \
+    uuid-runtime \
+    wget \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables
+ENV POSTGIS_ENABLE_OUTDB_RASTERS=1
+ENV POSTGIS_GDAL_ENABLED_DRIVERS=ENABLE_ALL
+
+# Set up directories (postgres user already exists from PostgreSQL installation)
+RUN mkdir -p /var/lib/postgresql/data \
+    && chown -R postgres:postgres /var/lib/postgresql/data \
+    && chmod 700 /var/lib/postgresql/data
+
+# Initialize database
+RUN su - postgres -c "$(pg_config --bindir)/initdb -D /var/lib/postgresql/data"
+
+# Create initialization directory
+RUN mkdir -p /docker-entrypoint-initdb.d
+
+# Set up PostGIS extensions and initialization
+RUN echo "CREATE EXTENSION IF NOT EXISTS postgis;" > /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS postgis_topology;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS postgis_raster;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS address_standardizer;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS address_standardizer_data_us;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"pg_trgm\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gin\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gist\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql
+
+# Create a function to get PostGIS version info
+RUN echo "CREATE OR REPLACE FUNCTION get_postgis_info() RETURNS TABLE(extension text, version text) AS \$\$ BEGIN RETURN QUERY SELECT 'PostGIS'::text, PostGIS_Version()::text UNION ALL SELECT 'PostGIS Scripts'::text, PostGIS_Scripts_Version()::text UNION ALL SELECT 'PostGIS Lib'::text, PostGIS_Lib_Version()::text UNION ALL SELECT 'GEOS'::text, PostGIS_GEOS_Version()::text UNION ALL SELECT 'PROJ'::text, PostGIS_PROJ_Version()::text UNION ALL SELECT 'GDAL'::text, PostGIS_GDAL_Version()::text; END; \$\$ LANGUAGE plpgsql;" > /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Create a function to check spatial data integrity
+RUN echo "CREATE OR REPLACE FUNCTION check_spatial_integrity() RETURNS TABLE(table_name text, column_name text, geometry_count bigint, invalid_count bigint) AS \$\$ BEGIN RETURN QUERY SELECT f_table_name::text, f_geometry_column::text, COUNT(*)::bigint as geometry_count, COUNT(*) FILTER (WHERE NOT ST_IsValid(geometry))::bigint as invalid_count FROM geometry_columns gc JOIN information_schema.tables t ON t.table_name = gc.f_table_name WHERE t.table_schema = 'public' GROUP BY f_table_name, f_geometry_column; END; \$\$ LANGUAGE plpgsql;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Log successful initialization
+RUN echo "DO \$\$ BEGIN RAISE NOTICE 'PostGIS extensions initialized successfully'; RAISE NOTICE 'PostGIS Version: %', PostGIS_Version(); RAISE NOTICE 'GEOS Version: %', PostGIS_GEOS_Version(); RAISE NOTICE 'PROJ Version: %', PostGIS_PROJ_Version(); END \$\$;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Get PostgreSQL binary directory\n\
+PG_BINDIR=$(pg_config --bindir)\n\
+\n\
+# Start PostgreSQL\n\
+su - postgres -c "$PG_BINDIR/pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/logfile start"\n\
+\n\
+# Wait for PostgreSQL to be ready\n\
+until su - postgres -c "$PG_BINDIR/pg_isready"; do\n\
+  echo "Waiting for PostgreSQL to be ready..."\n\
+  sleep 2\n\
+done\n\
+\n\
+# Run initialization scripts\n\
+for script in /docker-entrypoint-initdb.d/*.sql; do\n\
+  if [ -f "$script" ]; then\n\
+    echo "Running $script..."\n\
+    su - postgres -c "$PG_BINDIR/psql -f $script"\n\
+  fi\n\
+done\n\
+\n\
+# Keep container running\n\
+tail -f /var/lib/postgresql/logfile' > /usr/local/bin/start-postgis.sh \
+    && chmod +x /usr/local/bin/start-postgis.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD su - postgres -c "$(pg_config --bindir)/pg_isready" || exit 1
+
+# Expose port
+EXPOSE 5432
+
+# Set default command
+CMD ["/usr/local/bin/start-postgis.sh"] 

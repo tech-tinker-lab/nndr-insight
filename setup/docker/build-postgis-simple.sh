@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Build script for Simple ARM64 PostGIS image
+# This version uses pre-built Ubuntu packages instead of building from source
+
+set -e
+
+echo "=========================================="
+echo "Building Simple ARM64 PostGIS Image"
+echo "=========================================="
+
+# Configuration
+IMAGE_NAME="nndr-postgis-simple"
+TAG="arm64-v1.0"
+FULL_IMAGE_NAME="${IMAGE_NAME}:${TAG}"
+
+echo "Image: ${FULL_IMAGE_NAME}"
+echo "Platform: linux/arm64"
+echo "Strategy: Pre-built Ubuntu packages"
+echo ""
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "ERROR: Docker is not running or not accessible"
+    exit 1
+fi
+
+# Check if we're on ARM64 platform
+ARCH=$(uname -m)
+if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
+    echo "WARNING: Building on non-ARM64 platform ($ARCH)"
+    echo "This image is designed for ARM64 but can be built on other platforms"
+    echo ""
+fi
+
+# Build the image
+echo "Building PostGIS image..."
+echo "This may take a few minutes..."
+
+docker build \
+    --platform linux/arm64 \
+    --file Dockerfile.postgis-arm64-simple \
+    --tag "${FULL_IMAGE_NAME}" \
+    --progress=plain \
+    .
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "✅ Build completed successfully!"
+    echo ""
+    echo "Image details:"
+    echo "  Name: ${FULL_IMAGE_NAME}"
+    echo "  Size: $(docker images ${FULL_IMAGE_NAME} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}")"
+    echo ""
+    echo "To run the container:"
+    echo "  docker run -d --name nndr-postgis-simple \\"
+    echo "    -p 5432:5432 \\"
+    echo "    -e POSTGRES_DB=nndr_insight \\"
+    echo "    -e POSTGRES_USER=nndr_user \\"
+    echo "    -e POSTGRES_PASSWORD=nndr_password \\"
+    echo "    ${FULL_IMAGE_NAME}"
+    echo ""
+    echo "Or use docker-compose:"
+    echo "  docker-compose -f docker-compose.simple.yml up -d"
+    echo ""
+    echo "Connection details:"
+    echo "  Host: localhost"
+    echo "  Port: 5432"
+    echo "  Database: nndr_insight"
+    echo "  Username: nndr_user"
+    echo "  Password: nndr_password"
+    echo ""
+    echo "To test the connection:"
+    echo "  docker exec -it nndr-postgis-simple su - postgres -c 'psql -d nndr_insight -c \"SELECT PostGIS_Version();\"'"
+else
+    echo ""
+    echo "❌ Build failed!"
+    echo ""
+    echo "Troubleshooting:"
+    echo "1. Check Docker logs: docker logs nndr-postgis-simple"
+    echo "2. Ensure you have sufficient disk space"
+    echo "3. Try building with more memory: docker build --memory=4g ..."
+    echo "4. Check internet connection for package downloads"
+    exit 1
+fi 

@@ -1,0 +1,164 @@
+# Multi-stage build for optimized PostGIS ARM64 image
+FROM postgres:16-alpine AS base
+
+# Install build dependencies
+RUN apk add --no-cache \
+    build-base \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    pkgconfig \
+    flex \
+    bison \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    python3 \
+    py3-pip \
+    py3-setuptools \
+    py3-wheel
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    postgresql-dev \
+    postgresql-contrib \
+    geos-dev \
+    proj-dev \
+    gdal-dev \
+    json-c-dev \
+    libxml2-dev \
+    libxslt-dev \
+    protobuf-c-dev \
+    libgeotiff-dev \
+    tiff-dev \
+    libjpeg-turbo-dev \
+    libpng-dev \
+    libwebp-dev \
+    zlib-dev \
+    bzip2-dev \
+    lz4-dev \
+    zstd-dev \
+    openssl-dev \
+    readline-dev \
+    ncurses-dev \
+    libedit-dev \
+    tcl-dev \
+    tk-dev \
+    util-linux \
+    && rm -rf /var/cache/apk/*
+
+# Build PostGIS from source for optimal performance
+FROM base AS postgis-builder
+
+# Set build environment
+ENV POSTGIS_VERSION=3.4.1
+
+# Download and build PostGIS
+WORKDIR /usr/src
+RUN wget -O postgis.tar.gz "https://download.osgeo.org/postgis/source/postgis-${POSTGIS_VERSION}.tar.gz" \
+    && tar -xzf postgis.tar.gz \
+    && cd postgis-${POSTGIS_VERSION} \
+    && ./configure \
+        --prefix=/usr/local \
+        --with-pgconfig=/usr/bin/pg_config \
+        --with-geosconfig=/usr/bin/geos-config \
+        --with-projdir=/usr \
+        --with-gdalconfig=/usr/bin/gdal-config \
+        --with-jsondir=/usr \
+        --with-protobufdir=/usr \
+        --with-libiconv=/usr \
+        --with-libintl=/usr \
+        --with-raster \
+        --with-topology \
+        --with-address-standardizer \
+        --with-address-standardizer-extension \
+        --with-extra-version=" (ARM64 Optimized)" \
+    && make -j$(nproc) \
+    && make install \
+    && make comments-install \
+    && cd .. \
+    && rm -rf postgis-${POSTGIS_VERSION} postgis.tar.gz
+
+# pg_stat_statements is already included in postgresql-contrib package
+
+# Final stage
+FROM postgres:16-alpine
+
+# Install runtime dependencies
+RUN apk update && apk add --no-cache \
+    postgresql-contrib \
+    geos \
+    proj \
+    gdal \
+    json-c \
+    libxml2 \
+    libxslt \
+    protobuf-c \
+    libgeotiff \
+    tiff \
+    libjpeg-turbo \
+    libpng \
+    libwebp \
+    zlib \
+    bzip2 \
+    lz4 \
+    zstd \
+    openssl \
+    readline \
+    ncurses \
+    libedit \
+    tcl \
+    tk \
+    util-linux \
+    && rm -rf /var/cache/apk/*
+
+# Copy PostGIS from builder
+COPY --from=postgis-builder /usr/local/lib /usr/local/lib
+COPY --from=postgis-builder /usr/local/share /usr/local/share
+COPY --from=postgis-builder /usr/local/bin /usr/local/bin
+
+# Set environment variables
+ENV POSTGIS_ENABLE_OUTDB_RASTERS=1
+ENV POSTGIS_GDAL_ENABLED_DRIVERS=ENABLE_ALL
+
+# Create postgis user and set permissions
+RUN addgroup -g 1000 postgis \
+    && adduser -D -s /bin/bash -u 1000 -G postgis postgis
+
+# Create directories and set permissions
+RUN mkdir -p /var/lib/postgresql/data \
+    && chown -R postgres:postgres /var/lib/postgresql/data \
+    && chmod 700 /var/lib/postgresql/data
+
+# Set up PostGIS extensions and initialization
+RUN echo "CREATE EXTENSION IF NOT EXISTS postgis;" > /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS postgis_topology;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS postgis_raster;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS address_standardizer;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS address_standardizer_data_us;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"pg_trgm\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gin\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gist\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql
+
+# Create a function to get PostGIS version info
+RUN echo "CREATE OR REPLACE FUNCTION get_postgis_info() RETURNS TABLE(extension text, version text) AS \$\$ BEGIN RETURN QUERY SELECT 'PostGIS'::text, PostGIS_Version()::text UNION ALL SELECT 'PostGIS Scripts'::text, PostGIS_Scripts_Version()::text UNION ALL SELECT 'PostGIS Lib'::text, PostGIS_Lib_Version()::text UNION ALL SELECT 'GEOS'::text, PostGIS_GEOS_Version()::text UNION ALL SELECT 'PROJ'::text, PostGIS_PROJ_Version()::text UNION ALL SELECT 'GDAL'::text, PostGIS_GDAL_Version()::text; END; \$\$ LANGUAGE plpgsql;" > /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Create a function to check spatial data integrity
+RUN echo "CREATE OR REPLACE FUNCTION check_spatial_integrity() RETURNS TABLE(table_name text, column_name text, geometry_count bigint, invalid_count bigint) AS \$\$ BEGIN RETURN QUERY SELECT f_table_name::text, f_geometry_column::text, COUNT(*)::bigint as geometry_count, COUNT(*) FILTER (WHERE NOT ST_IsValid(geometry))::bigint as invalid_count FROM geometry_columns gc JOIN information_schema.tables t ON t.table_name = gc.f_table_name WHERE t.table_schema = 'public' GROUP BY f_table_name, f_geometry_column; END; \$\$ LANGUAGE plpgsql;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Log successful initialization
+RUN echo "DO \$\$ BEGIN RAISE NOTICE 'PostGIS extensions initialized successfully'; RAISE NOTICE 'PostGIS Version: %', PostGIS_Version(); RAISE NOTICE 'GEOS Version: %', PostGIS_GEOS_Version(); RAISE NOTICE 'PROJ Version: %', PostGIS_PROJ_Version(); END \$\$;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD pg_isready -U postgres || exit 1
+
+# Expose port
+EXPOSE 5432
+
+# Set default command
+CMD ["postgres"] 

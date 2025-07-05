@@ -1,0 +1,114 @@
+version: '3.8'
+services:
+  db:
+    # Use custom built PostGIS image for maximum performance
+    build:
+      context: ../..
+      dockerfile: setup/docker/Dockerfile.postgis-arm64
+      platforms:
+        - linux/arm64
+    platform: linux/arm64
+    environment:
+      POSTGRES_USER: nndr
+      POSTGRES_PASSWORD: nndrpass
+      POSTGRES_DB: nndr_db
+      # Performance optimizations
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Memory and performance settings
+      POSTGRES_SHARED_PRELOAD_LIBRARIES: "pg_stat_statements"
+      # Connection settings
+      POSTGRES_MAX_CONNECTIONS: "200"
+      # PostGIS specific settings
+      POSTGIS_ENABLE_OUTDB_RASTERS: "1"
+      POSTGIS_GDAL_ENABLED_DRIVERS: "ENABLE_ALL"
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ../../setup/config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ../../setup/config/postgresql.conf:/var/lib/postgresql/data/postgresql.conf
+    command: >
+      postgres 
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c shared_preload_libraries=pg_stat_statements
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c effective_cache_size=2GB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=32MB
+      -c default_statistics_target=200
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=400
+      -c work_mem=8MB
+      -c min_wal_size=2GB
+      -c max_wal_size=8GB
+      -c postgis.enable_outdb_rasters=true
+      -c postgis.gdal_enabled_drivers=ENABLE_ALL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nndr -d nndr_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # Optional: Add pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    platform: linux/arm64
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@nndr.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional: Add Redis for caching (useful for spatial queries)
+  redis:
+    image: redis:7-alpine
+    platform: linux/arm64
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+volumes:
+  db_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: nndr-network
+    driver: bridge 
