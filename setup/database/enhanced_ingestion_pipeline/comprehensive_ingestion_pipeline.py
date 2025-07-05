@@ -142,78 +142,70 @@ class ComprehensiveIngestionPipeline:
             logger.error(f"Pipeline initialization failed: {e}")
             return False
     
+    MASTER_GAZETTEER_COLUMNS = [
+        'uprn', 'ba_reference', 'property_address', 'street_descriptor',
+        'locality', 'post_town', 'administrative_area', 'postcode',
+        'property_category_code', 'property_description', 'rateable_value',
+        'effective_date', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude'
+    ]
+
+    def _align_to_schema(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Ensure DataFrame has all master_gazetteer columns in correct order, filling missing with None."""
+        for col in self.MASTER_GAZETTEER_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+        return df[self.MASTER_GAZETTEER_COLUMNS]
+    
     def process_voa_data(self, file_path: str) -> pd.DataFrame:
         """Process VOA pipe-delimited data with enhanced field mapping"""
         logger.info(f"Processing VOA data: {file_path}")
-        
-        # Enhanced field mapping for VOA data
         field_positions = {
-            'record_id': 0,
-            'ba_code': 1,
+            'uprn': 25,
             'ba_reference': 2,
-            'property_category': 3,
-            'description': 4,
-            'scat_code': 5,
-            'full_address': 6,
-            'property_name': 7,
-            'street': 8,
-            'town': 9,
-            'locality': 10,
-            'postcode': 11,
-            'rateable_value': 12,
-            'uprn': 13,
-            'appeal_code': 14,
-            'effective_date': 15
+            'property_address': 6,
+            'street_descriptor': 10,
+            'locality': 12,
+            'post_town': 9,
+            'administrative_area': None,  # Not present
+            'postcode': 14,
+            'property_category_code': 4,
+            'property_description': 5,
+            'rateable_value': 17,
+            'effective_date': 26,
+            'x_coordinate': None,
+            'y_coordinate': None,
+            'latitude': None,
+            'longitude': None
         }
-        
         data_rows = []
         chunk_size = 10000
-        
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 for line_num, line in enumerate(file):
                     if line_num % 100000 == 0:
                         logger.info(f"Processed {line_num} VOA lines")
-                    
                     fields = line.strip().split('*')
-                    
-                    if len(fields) < 16:
+                    if len(fields) < 27:
                         continue
-                    
                     try:
-                        row = {
-                            'ba_reference': fields[field_positions['ba_reference']] if len(fields) > field_positions['ba_reference'] else None,
-                            'property_category_code': fields[field_positions['property_category']] if len(fields) > field_positions['property_category'] else None,
-                            'property_description': fields[field_positions['description']] if len(fields) > field_positions['description'] else None,
-                            'property_address': fields[field_positions['full_address']] if len(fields) > field_positions['full_address'] else None,
-                            'street_descriptor': fields[field_positions['street']] if len(fields) > field_positions['street'] else None,
-                            'post_town': fields[field_positions['town']] if len(fields) > field_positions['town'] else None,
-                            'locality': fields[field_positions['locality']] if len(fields) > field_positions['locality'] else None,
-                            'postcode': fields[field_positions['postcode']] if len(fields) > field_positions['postcode'] else None,
-                            'rateable_value': self._parse_rateable_value(fields[field_positions['rateable_value']]) if len(fields) > field_positions['rateable_value'] else None,
-                            'uprn': fields[field_positions['uprn']] if len(fields) > field_positions['uprn'] else None,
-                            'effective_date': self._parse_date(fields[field_positions['effective_date']]) if len(fields) > field_positions['effective_date'] else None,
-                            'scat_code': fields[field_positions['scat_code']] if len(fields) > field_positions['scat_code'] else None,
-                            'data_source': 'voa_2023',
-                            'source_priority': 1,
-                            'source_confidence_score': 0.95,
-                            'last_source_update': datetime.now(),
-                            'source_file_reference': os.path.basename(file_path)
-                        }
-                        
+                        row = {}
+                        for col in self.MASTER_GAZETTEER_COLUMNS:
+                            pos = field_positions.get(col)
+                            row[col] = fields[pos] if pos is not None else None
+                        # Type conversions
+                        row['rateable_value'] = self._parse_rateable_value(row['rateable_value'])
+                        row['effective_date'] = self._parse_date(row['effective_date'])
                         data_rows.append(row)
-                        
                         if len(data_rows) >= chunk_size:
-                            yield pd.DataFrame(data_rows)
+                            df = pd.DataFrame(data_rows)
+                            yield self._align_to_schema(df)
                             data_rows = []
-                            
                     except Exception as e:
                         logger.warning(f"Error processing VOA line {line_num}: {e}")
                         continue
-            
             if data_rows:
-                yield pd.DataFrame(data_rows)
-                
+                df = pd.DataFrame(data_rows)
+                yield self._align_to_schema(df)
         except Exception as e:
             logger.error(f"Error processing VOA file: {e}")
             raise
@@ -225,38 +217,24 @@ class ComprehensiveIngestionPipeline:
         try:
             chunk_size = 10000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
-                # Map fields to enhanced schema
-                column_mapping = {
-                    'BAReference': 'ba_reference',
-                    'PropertyCategoryCode': 'property_category_code',
-                    'PropertyDescription': 'property_description',
-                    'PropertyAddress': 'property_address',
-                    'StreetDescriptor': 'street_descriptor',
-                    'Locality': 'locality',
-                    'PostTown': 'post_town',
-                    'AdministrativeArea': 'administrative_area',
-                    'PostCode': 'postcode',
-                    'RateableValue': 'rateable_value',
-                    'SCATCode': 'scat_code',
-                    'UniquePropertyRef': 'uprn',
-                    'EffectiveDate': 'effective_date'
-                }
-                
-                chunk = chunk.rename(columns=column_mapping)
-                
-                # Add source tracking
-                chunk['data_source'] = 'local_council_2015'
-                chunk['source_priority'] = 2
-                chunk['source_confidence_score'] = 0.85
-                chunk['last_source_update'] = datetime.now()
-                chunk['source_file_reference'] = os.path.basename(file_path)
-                
-                # Clean and validate data
-                chunk['postcode'] = chunk['postcode'].str.strip().str.upper()
-                chunk['rateable_value'] = pd.to_numeric(chunk['rateable_value'], errors='coerce')
-                chunk['effective_date'] = pd.to_datetime(chunk['effective_date'], errors='coerce')
-                
-                yield chunk
+                # Explicit mapping
+                chunk['uprn'] = chunk.get('UniquePropertyRef', None)
+                chunk['ba_reference'] = chunk.get('BAReference', None)
+                chunk['property_address'] = chunk.get('PropertyAddress', None)
+                chunk['street_descriptor'] = chunk.get('StreetDescriptor', None)
+                chunk['locality'] = chunk.get('Locality', None)
+                chunk['post_town'] = chunk.get('PostTown', None)
+                chunk['administrative_area'] = chunk.get('AdministrativeArea', None)
+                chunk['postcode'] = chunk.get('PostCode', None)
+                chunk['property_category_code'] = chunk.get('PropertyCategoryCode', None)
+                chunk['property_description'] = chunk.get('PropertyDescription', None)
+                chunk['rateable_value'] = pd.to_numeric(chunk.get('RateableValue', None), errors='coerce')
+                chunk['effective_date'] = pd.to_datetime(chunk.get('EffectiveDate', None), errors='coerce')
+                chunk['x_coordinate'] = None
+                chunk['y_coordinate'] = None
+                chunk['latitude'] = None
+                chunk['longitude'] = None
+                yield self._align_to_schema(chunk)
                 
         except Exception as e:
             logger.error(f"Error processing local council file: {e}")
@@ -269,23 +247,23 @@ class ComprehensiveIngestionPipeline:
         try:
             chunk_size = 50000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-                # Transform coordinates from OSGB to WGS84 if needed
-                chunk['latitude'] = chunk['LATITUDE']
-                chunk['longitude'] = chunk['LONGITUDE']
-                chunk['x_coordinate'] = chunk['X_COORDINATE']
-                chunk['y_coordinate'] = chunk['Y_COORDINATE']
-                
-                # Add source information
-                chunk['data_source'] = 'os_uprn'
-                chunk['source_priority'] = 1
-                chunk['source_confidence_score'] = 0.98
-                chunk['last_source_update'] = datetime.now()
-                chunk['source_file_reference'] = os.path.basename(file_path)
-                
-                # Rename columns
-                chunk = chunk.rename(columns={'UPRN': 'uprn'})
-                
-                yield chunk
+                chunk['uprn'] = chunk.get('UPRN', None)
+                chunk['ba_reference'] = None
+                chunk['property_address'] = None
+                chunk['street_descriptor'] = None
+                chunk['locality'] = None
+                chunk['post_town'] = None
+                chunk['administrative_area'] = None
+                chunk['postcode'] = None
+                chunk['property_category_code'] = None
+                chunk['property_description'] = None
+                chunk['rateable_value'] = None
+                chunk['effective_date'] = None
+                chunk['x_coordinate'] = chunk.get('X_COORDINATE', None)
+                chunk['y_coordinate'] = chunk.get('Y_COORDINATE', None)
+                chunk['latitude'] = chunk.get('LATITUDE', None)
+                chunk['longitude'] = chunk.get('LONGITUDE', None)
+                yield self._align_to_schema(chunk)
                 
         except Exception as e:
             logger.error(f"Error processing OS UPRN file: {e}")
@@ -331,17 +309,23 @@ class ComprehensiveIngestionPipeline:
         try:
             chunk_size = 50000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
-                # Add source information
-                chunk['data_source'] = 'onspd'
-                chunk['source_priority'] = 1
-                chunk['source_confidence_score'] = 0.95
-                chunk['last_source_update'] = datetime.now()
-                chunk['source_file_reference'] = os.path.basename(file_path)
-                
-                # Clean postcodes
-                chunk['PCD'] = chunk['PCD'].str.strip().str.upper()
-                
-                yield chunk
+                chunk['uprn'] = None
+                chunk['ba_reference'] = None
+                chunk['property_address'] = None
+                chunk['street_descriptor'] = None
+                chunk['locality'] = None
+                chunk['post_town'] = None
+                chunk['administrative_area'] = None
+                chunk['postcode'] = chunk.get('PCD', None)
+                chunk['property_category_code'] = None
+                chunk['property_description'] = None
+                chunk['rateable_value'] = None
+                chunk['effective_date'] = None
+                chunk['x_coordinate'] = chunk.get('x', None)
+                chunk['y_coordinate'] = chunk.get('y', None)
+                chunk['latitude'] = chunk.get('lat', None)
+                chunk['longitude'] = chunk.get('long', None)
+                yield self._align_to_schema(chunk)
                 
         except Exception as e:
             logger.error(f"Error processing ONSPD file: {e}")
@@ -412,21 +396,24 @@ class ComprehensiveIngestionPipeline:
                             logger.warning(f"Skipping UNLOGGED for {table_name} due to foreign key references")
                         else:
                             raise
-                
                 # Prepare data for insertion
                 columns = df.columns.tolist()
                 data = list(df.itertuples(index=False, name=None))
-                
                 # Bulk insert
                 with conn.cursor() as cursor:
-                    execute_values(
-                        cursor,
-                        f"INSERT INTO {table_name} ({','.join(columns)}) VALUES %s",
-                        data,
-                        template=None,
-                        page_size=1000
-                    )
-                
+                    try:
+                        execute_values(
+                            cursor,
+                            f"INSERT INTO {table_name} ({','.join(columns)}) VALUES %s",
+                            data,
+                            template=None,
+                            page_size=1000
+                        )
+                    except Exception as e:
+                        logger.error(f"Bulk insert failed for table {table_name}.")
+                        logger.error(f"First row: {data[0] if data else 'NO DATA'}")
+                        logger.error(f"Exception: {e}")
+                        raise
                 # Re-enable logging and rebuild indexes
                 with conn.cursor() as cursor:
                     try:
@@ -437,11 +424,9 @@ class ComprehensiveIngestionPipeline:
                         else:
                             raise
                     cursor.execute(f"REINDEX TABLE {table_name}")
-                
                 conn.commit()
                 logger.info(f"Successfully inserted {len(df)} records")
                 self.stats['total_records_inserted'] += len(df)
-                
         except Exception as e:
             logger.error(f"Bulk insert failed: {e}")
             self.stats['total_errors'] += 1
