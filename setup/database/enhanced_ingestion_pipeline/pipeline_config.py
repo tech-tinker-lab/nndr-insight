@@ -156,7 +156,7 @@ ENHANCED_DATA_SOURCES = {
         'quality_score': 0.90,
         'update_frequency': 'quarterly',
         'source_type': 'reference',
-        'enabled': False,  # Disabled due to path resolution issues
+        'enabled': False,
         'field_mapping': {
             'postcode': 'postcode',
             'easting': 'x_coordinate',
@@ -175,7 +175,7 @@ ENHANCED_DATA_SOURCES = {
         'quality_score': 0.95,
         'update_frequency': 'quarterly',
         'source_type': 'reference',
-        'enabled': True,
+        'enabled': False,
         'field_mapping': {
             'PCD': 'postcode',
             'X': 'x_coordinate',
@@ -274,7 +274,60 @@ ENHANCED_DATA_SOURCES = {
             'indicator_value': 'indicator_value',
             'unit_of_measure': 'unit_of_measure'
         }
-    }
+    },
+    'os_open_names': {
+        'priority': 1,
+        'description': 'OS Open Names - Address reference data',
+        'file_pattern': 'opname_csv_gb/Data/*.csv',
+        'format': 'csv',
+        'coordinate_system': 'osgb',
+        'quality_score': 0.95,
+        'update_frequency': 'annual',
+        'source_type': 'reference',
+        'enabled': False,
+        'field_mapping': {
+            'OS_ID': 'os_id',
+            'NAME1': 'name1',
+            'LOCAL_TYPE': 'local_type',
+            'GEOMETRY_X': 'geometry_x',
+            'GEOMETRY_Y': 'geometry_y',
+            'POSTCODE_DISTRICT': 'postcode_district',
+            'COUNTRY': 'country',
+        }
+    },
+    'lad_boundaries': {
+        'priority': 1,
+        'description': 'Local Authority District Boundaries',
+        'file_pattern': 'LAD_MAY_2025_UK_BFC.shp',
+        'format': 'shapefile',
+        'coordinate_system': 'osgb',
+        'quality_score': 0.98,
+        'update_frequency': 'annual',
+        'source_type': 'reference',
+        'enabled': False,
+        'field_mapping': {
+            'LAD_CODE': 'lad_code',
+            'LAD_NAME': 'lad_name',
+            'GEOMETRY': 'geometry',
+        }
+    },
+    'os_open_map_local': {
+        'priority': 1,
+        'description': 'OS Open Map Local - Map features',
+        'file_pattern': 'opmplc_gml3_gb/*.gml',
+        'format': 'gml',
+        'coordinate_system': 'osgb',
+        'quality_score': 0.95,
+        'update_frequency': 'annual',
+        'source_type': 'reference',
+        'enabled': False,
+        'field_mapping': {
+            'FEATURE_ID': 'feature_id',
+            'FEATURE_TYPE': 'feature_type',
+            'THEME': 'theme',
+            'GEOMETRY': 'geometry',
+        }
+    },
 }
 
 # Data Quality Rules

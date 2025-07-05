@@ -23,6 +23,7 @@ from pathlib import Path
 import tempfile
 import zipfile
 import shutil
+import sqlalchemy
 
 # Add the parent directory to the path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -165,6 +166,34 @@ class ComprehensiveIngestionPipeline:
                 df['property_id'] = df['uprn'].astype(str)
             else:
                 df['property_id'] = None
+        
+        # Clean data: replace NaN with None and handle data types
+        df = df.replace({pd.NA: None, pd.NaT: None})
+        df = df.where(pd.notnull(df), None)
+        
+        # Convert specific columns to proper types
+        if 'uprn' in df.columns:
+            df['uprn'] = pd.to_numeric(df['uprn'], errors='coerce')
+        
+        if 'rateable_value' in df.columns:
+            df['rateable_value'] = pd.to_numeric(df['rateable_value'], errors='coerce')
+        
+        if 'x_coordinate' in df.columns:
+            df['x_coordinate'] = pd.to_numeric(df['x_coordinate'], errors='coerce')
+        
+        if 'y_coordinate' in df.columns:
+            df['y_coordinate'] = pd.to_numeric(df['y_coordinate'], errors='coerce')
+        
+        if 'latitude' in df.columns:
+            df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
+        
+        if 'longitude' in df.columns:
+            df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
+        
+        # Filter out rows with invalid UPRN (None, NaN, or 0)
+        if 'uprn' in df.columns:
+            df = df.dropna(subset=['uprn'])
+            df = df[df['uprn'].astype(float) != 0]
         
         return df[self.MASTER_GAZETTEER_COLUMNS]
     
@@ -454,28 +483,59 @@ class ComprehensiveIngestionPipeline:
             self.stats['total_errors'] += 1
             raise
     
+    # Add a mapping from source_name to target table
+    REFERENCE_TABLE_MAP = {
+        'os_uprn': 'os_open_uprn',
+        'onspd': 'onspd',
+        'codepoint': 'code_point_open',
+        'os_open_names': 'os_open_names',
+        'lad_boundaries': 'lad_boundaries',
+        'os_open_map_local': 'os_open_map_local',
+    }
+
+    def _align_to_table_schema(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """Align DataFrame columns to match the target table schema."""
+        engine = sqlalchemy.create_engine(get_connection_string())
+        insp = sqlalchemy.inspect(engine)
+        columns = [col['name'] for col in insp.get_columns(table_name)]
+        # Filter out auto-generated columns (like 'id' with SERIAL/sequence)
+        auto_generated_columns = []
+        for col in insp.get_columns(table_name):
+            if col.get('autoincrement', False) or (col.get('default') and 'nextval' in str(col.get('default'))):
+                auto_generated_columns.append(col['name'])
+        # Only keep columns that exist in the table and are not auto-generated
+        insertable_columns = [col for col in columns if col not in auto_generated_columns]
+        # Only keep columns that exist in the DataFrame and are insertable
+        aligned = df[[col for col in insertable_columns if col in df.columns]].copy()
+        # Add missing columns as None
+        for col in insertable_columns:
+            if col not in aligned.columns:
+                aligned[col] = None
+        return aligned[insertable_columns]
+
     def run_parallel_processing(self, data_files: List[Tuple[str, str]]):
         """Run parallel processing for multiple data files"""
         logger.info("Starting parallel processing")
-        
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
-            
             for file_path, source_name in data_files:
                 if source_name in self.data_sources:
                     future = executor.submit(self.process_single_file, file_path, source_name)
-                    futures.append(future)
-            
+                    futures.append((future, source_name))
             # Collect results
-            for future in concurrent.futures.as_completed(futures):
+            for future, source_name in futures:
                 try:
                     result = future.result()
-                    # Process result chunks
                     for chunk in result:
-                        # Detect duplicates
                         chunk = self.detect_duplicates(chunk)
-                        # Insert data
-                        self.bulk_insert_data(chunk, 'master_gazetteer')
+                        # Determine target table
+                        if source_name in self.REFERENCE_TABLE_MAP:
+                            table_name = self.REFERENCE_TABLE_MAP[source_name]
+                            chunk = self._align_to_table_schema(chunk, table_name)
+                        else:
+                            table_name = 'master_gazetteer'
+                            chunk = self._align_to_schema(chunk)
+                        self.bulk_insert_data(chunk, table_name)
                 except Exception as e:
                     logger.error(f"Processing failed: {e}")
                     self.stats['total_errors'] += 1

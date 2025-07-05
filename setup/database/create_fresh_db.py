@@ -196,12 +196,12 @@ def main():
         
         """
         CREATE TABLE IF NOT EXISTS os_open_uprn (
-            uprn BIGINT PRIMARY KEY,
-            x_coordinate DOUBLE PRECISION,
-            y_coordinate DOUBLE PRECISION,
-            latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION,
-            source TEXT
+            id SERIAL PRIMARY KEY,
+            uprn BIGINT UNIQUE,
+            x_coordinate NUMERIC,
+            y_coordinate NUMERIC,
+            latitude NUMERIC,
+            longitude NUMERIC
         );
         """,
         
