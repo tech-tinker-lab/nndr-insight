@@ -44,19 +44,25 @@ setup/docker/
 
 ### For Local Development
 
-1. **Official Kartoza PostGIS** (Recommended for Production):
+1. **Enhanced Custom PostGIS ARM64** (Recommended):
+   ```bash
+   cd setup/docker
+   docker compose -f docker-compose.custom.yml up -d --build
+   ```
+
+2. **Official Kartoza PostGIS** (Alternative Production):
    ```bash
    cd setup/docker
    docker compose -f docker-compose.official-kartoza.yml up -d
    ```
 
-2. **Simple Setup** (Good for Development):
+3. **Simple Setup** (Good for Development):
    ```bash
    cd setup/docker
    docker compose -f docker-compose.simple.yml up -d
    ```
 
-3. **Official PostGIS Image**:
+4. **Official PostGIS Image**:
    ```bash
    cd setup/docker
    docker compose -f docker-compose.official.yml up -d
@@ -64,19 +70,25 @@ setup/docker/
 
 ### For Remote Deployment
 
-1. **Deploy Official Kartoza PostGIS** (Recommended):
+1. **Deploy Enhanced Custom PostGIS** (Recommended):
+   ```bash
+   # From project root directory
+   setup\docker\deploy-enhanced-custom.bat
+   ```
+
+2. **Deploy Official Kartoza PostGIS** (Alternative):
    ```bash
    # From project root directory
    setup\docker\deploy-kartoza-official.bat
    ```
 
-2. **Deploy Simple Setup**:
+3. **Deploy Simple Setup**:
    ```bash
    # From project root directory
    setup\docker\deploy-postgis-simple.bat
    ```
 
-3. **Or use PowerShell**:
+4. **Or use PowerShell**:
    ```powershell
    # From project root directory
    .\setup\docker\deploy-simple.ps1
@@ -93,6 +105,19 @@ All docker-compose files have been updated to use relative paths from the `setup
 ## Database Connection Details
 
 After successful deployment:
+
+### Enhanced Custom PostGIS ARM64
+- **Host**: `localhost` (local) or your remote server IP
+- **Port**: `5432`
+- **Database**: `nndr_db`
+- **User**: `nndr`
+- **Password**: `nndrpass`
+- **PostGIS Version**: 3.5.1 (latest)
+- **Additional Services**:
+  - **pgAdmin**: http://localhost:8080 (admin@nndr.local/admin123)
+  - **Grafana**: http://localhost:3000 (admin/admin123)
+  - **Prometheus**: http://localhost:9090
+  - **Redis**: localhost:6379
 
 ### Official Kartoza PostGIS
 - **Host**: `localhost` (local) or your remote server IP
@@ -160,5 +185,6 @@ After the database is running:
 3. **Start the application**: Use the main `docker-compose.yml` for full stack
 
 For detailed setup instructions, see:
+- `ENHANCED_SETUP_README.md` - Enhanced PostGIS setup with monitoring
 - `DOCKER_SETUP.md` - Complete Docker setup guide
 - `POSTGIS_SIMPLE_README.md` - Simple PostGIS setup guide 

@@ -1,0 +1,36 @@
+services:
+  postgis-simple:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgis-arm64-simple
+    container_name: nndr-postgis-simple
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nndr_insight
+      POSTGRES_USER: nndr_user
+      POSTGRES_PASSWORD: nndr_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGDATA: /var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_simple_data:/var/lib/postgresql/data
+      - ./setup/database/migrations:/docker-entrypoint-initdb.d
+      - ./setup/database/schemas:/docker-entrypoint-initdb.d
+      - ./setup/database/data:/docker-entrypoint-initdb.d
+    networks:
+      - nndr-network
+    healthcheck:
+      test: ["CMD-SHELL", "su - postgres -c 'pg_isready'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgis_simple_data:
+    driver: local
+
+networks:
+  nndr-network:
+    driver: bridge 

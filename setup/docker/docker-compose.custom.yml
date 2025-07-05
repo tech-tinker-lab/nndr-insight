@@ -1,13 +1,14 @@
 version: '3.8'
 services:
   db:
-    # Use custom built PostGIS image for maximum performance
+    # Use enhanced custom built PostGIS image with Kartoza features
     build:
       context: ../..
       dockerfile: setup/docker/Dockerfile.postgis-arm64
       platforms:
         - linux/arm64
     platform: linux/arm64
+    container_name: nndr-postgis-enhanced
     environment:
       POSTGRES_USER: nndr
       POSTGRES_PASSWORD: nndrpass
@@ -21,12 +22,17 @@ services:
       # PostGIS specific settings
       POSTGIS_ENABLE_OUTDB_RASTERS: "1"
       POSTGIS_GDAL_ENABLED_DRIVERS: "ENABLE_ALL"
+      # Enhanced extensions like Kartoza
+      POSTGRES_MULTIPLE_EXTENSIONS: "postgis postgis_topology postgis_raster address_standardizer address_standardizer_data_us pg_stat_statements uuid-ossp pg_trgm btree_gin btree_gist h3"
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ../../setup/config/postgresql.conf:/etc/postgresql/postgresql.conf
-      - ../../setup/config/postgresql.conf:/var/lib/postgresql/data/postgresql.conf
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./config/postgresql.conf:/var/lib/postgresql/data/postgresql.conf
+      # Add monitoring and backup volumes
+      - postgres_logs:/var/log/postgresql
+      - backup_data:/backup
     command: >
       postgres 
       -c config_file=/etc/postgresql/postgresql.conf
@@ -45,8 +51,14 @@ services:
       -c max_wal_size=8GB
       -c postgis.enable_outdb_rasters=true
       -c postgis.gdal_enabled_drivers=ENABLE_ALL
+      -c log_destination=stderr
+      -c logging_collector=on
+      -c log_directory=/var/log/postgresql
+      -c log_filename=postgresql-%Y-%m-%d_%H%M%S.log
+      -c log_rotation_age=1d
+      -c log_rotation_size=100MB
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nndr -d nndr_db"]
+      test: ["CMD-SHELL", "pg_isready -U nndr -d nndr_db && psql -U nndr -d nndr_db -c 'SELECT PostGIS_Version();' > /dev/null 2>&1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -60,33 +72,55 @@ services:
         reservations:
           memory: 2G
           cpus: '1.0'
+    labels:
+      - "com.nndr.description=Enhanced PostGIS ARM64 with Kartoza features"
+      - "com.nndr.version=3.5.1"
+      - "com.nndr.platform=arm64"
 
-  # Optional: Add pgAdmin for database management
+  # Enhanced pgAdmin with better configuration
   pgadmin:
     image: dpage/pgadmin4:latest
     platform: linux/arm64
+    container_name: nndr-pgadmin-enhanced
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@nndr.local
       PGADMIN_DEFAULT_PASSWORD: admin123
       PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+      PGADMIN_CONFIG_LOGIN_BANNER: "NNDR Insight - Enhanced PostGIS Database"
+      PGADMIN_CONFIG_CONSOLE_LOG_LEVEL: 10
+      PGADMIN_CONFIG_FILE_LOG_LEVEL: 10
     ports:
       - "8080:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+      - ./config/pgadmin-servers.json:/pgadmin4/servers.json
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
+    labels:
+      - "com.nndr.description=Enhanced pgAdmin for NNDR database management"
 
-  # Optional: Add Redis for caching (useful for spatial queries)
+  # Enhanced Redis with persistence and monitoring
   redis:
     image: redis:7-alpine
     platform: linux/arm64
+    container_name: nndr-redis-enhanced
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+      - redis_config:/usr/local/etc/redis
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --loglevel notice
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -99,6 +133,81 @@ services:
           memory: 512M
         reservations:
           memory: 256M
+    labels:
+      - "com.nndr.description=Enhanced Redis cache for spatial queries"
+
+  # Add monitoring service (like Kartoza approach)
+  monitoring:
+    image: prom/prometheus:latest
+    platform: linux/arm64
+    container_name: nndr-monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - monitoring_data:/prometheus
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    depends_on:
+      - db
+    labels:
+      - "com.nndr.description=Prometheus monitoring for database metrics"
+
+  # Add Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    platform: linux/arm64
+    container_name: nndr-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+    depends_on:
+      - monitoring
+    labels:
+      - "com.nndr.description=Grafana dashboards for database monitoring"
+
+  # Add backup service
+  backup:
+    image: postgres:16-alpine
+    platform: linux/arm64
+    container_name: nndr-backup
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_USER: nndr
+      POSTGRES_PASSWORD: nndrpass
+      POSTGRES_DB: nndr_db
+    volumes:
+      - backup_data:/backup
+      - ./scripts/backup.sh:/backup.sh
+    command: >
+      sh -c "
+        echo 'Setting up backup service...' &&
+        apk add --no-cache postgresql-client &&
+        chmod +x /backup.sh &&
+        while true; do
+          sleep 86400 &&
+          /backup.sh
+        done
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    labels:
+      - "com.nndr.description=Automated database backup service"
 
 volumes:
   db_data:
@@ -107,8 +216,20 @@ volumes:
     driver: local
   redis_data:
     driver: local
+  redis_config:
+    driver: local
+  postgres_logs:
+    driver: local
+  backup_data:
+    driver: local
+  monitoring_data:
+    driver: local
+  grafana_data:
+    driver: local
 
 networks:
   default:
-    name: nndr-network
-    driver: bridge 
+    name: nndr-network-enhanced
+    driver: bridge
+    labels:
+      - "com.nndr.description=Enhanced NNDR network with monitoring" 

@@ -1,4 +1,5 @@
-# Multi-stage build for optimized PostGIS ARM64 image
+# Enhanced PostGIS ARM64 image combining custom optimization with official Kartoza features
+# Based on: postgres:16-alpine + Kartoza PostGIS 3.5.x + ARM64 optimizations
 FROM postgres:16-alpine AS base
 
 # Install build dependencies
@@ -18,7 +19,10 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-setuptools \
-    py3-wheel
+    py3-wheel \
+    wget \
+    curl \
+    ca-certificates
 
 # Install runtime dependencies
 RUN apk add --no-cache \
@@ -52,12 +56,14 @@ RUN apk add --no-cache \
 # Build PostGIS from source for optimal performance
 FROM base AS postgis-builder
 
-# Set build environment
-ENV POSTGIS_VERSION=3.4.1
+# Set build environment - Latest PostGIS version like Kartoza
+ENV POSTGIS_VERSION=3.5.1
+ENV POSTGIS_SHA256=9c0d7c41d7a39dc156c0e9d9aeeb4e4d83d5b609eac3c9c06f2c799d1f1b49c4
 
-# Download and build PostGIS
+# Download and build PostGIS with verification
 WORKDIR /usr/src
 RUN wget -O postgis.tar.gz "https://download.osgeo.org/postgis/source/postgis-${POSTGIS_VERSION}.tar.gz" \
+    && echo "${POSTGIS_SHA256} *postgis.tar.gz" | sha256sum -c - \
     && tar -xzf postgis.tar.gz \
     && cd postgis-${POSTGIS_VERSION} \
     && ./configure \
@@ -74,14 +80,33 @@ RUN wget -O postgis.tar.gz "https://download.osgeo.org/postgis/source/postgis-${
         --with-topology \
         --with-address-standardizer \
         --with-address-standardizer-extension \
-        --with-extra-version=" (ARM64 Optimized)" \
+        --with-extra-version=" (ARM64 Enhanced)" \
     && make -j$(nproc) \
     && make install \
     && make comments-install \
     && cd .. \
     && rm -rf postgis-${POSTGIS_VERSION} postgis.tar.gz
 
-# pg_stat_statements is already included in postgresql-contrib package
+# Build additional extensions like Kartoza
+FROM postgis-builder AS extensions-builder
+
+# Build pg_stat_statements extension
+RUN cd /usr/src \
+    && git clone --depth 1 --branch REL_16_STABLE https://github.com/postgres/postgres.git \
+    && cd postgres/contrib/pg_stat_statements \
+    && make -j$(nproc) \
+    && make install \
+    && cd /usr/src \
+    && rm -rf postgres
+
+# Build additional useful extensions
+RUN cd /usr/src \
+    && git clone --depth 1 https://github.com/citusdata/pg_auto_failover.git \
+    && cd pg_auto_failover \
+    && make -j$(nproc) \
+    && make install \
+    && cd /usr/src \
+    && rm -rf pg_auto_failover
 
 # Final stage
 FROM postgres:16-alpine
@@ -112,6 +137,11 @@ RUN apk update && apk add --no-cache \
     tcl \
     tk \
     util-linux \
+    # Additional tools for monitoring and debugging
+    htop \
+    vim \
+    curl \
+    wget \
     && rm -rf /var/cache/apk/*
 
 # Copy PostGIS from builder
@@ -119,9 +149,13 @@ COPY --from=postgis-builder /usr/local/lib /usr/local/lib
 COPY --from=postgis-builder /usr/local/share /usr/local/share
 COPY --from=postgis-builder /usr/local/bin /usr/local/bin
 
-# Set environment variables
+# Copy additional extensions
+COPY --from=extensions-builder /usr/lib/postgresql /usr/lib/postgresql
+
+# Set environment variables (like Kartoza)
 ENV POSTGIS_ENABLE_OUTDB_RASTERS=1
 ENV POSTGIS_GDAL_ENABLED_DRIVERS=ENABLE_ALL
+ENV POSTGRES_MULTIPLE_EXTENSIONS="postgis postgis_topology postgis_raster address_standardizer address_standardizer_data_us pg_stat_statements uuid-ossp pg_trgm btree_gin btree_gist h3"
 
 # Create postgis user and set permissions
 RUN addgroup -g 1000 postgis \
@@ -132,7 +166,10 @@ RUN mkdir -p /var/lib/postgresql/data \
     && chown -R postgres:postgres /var/lib/postgresql/data \
     && chmod 700 /var/lib/postgresql/data
 
-# Set up PostGIS extensions and initialization
+# Create initialization directory
+RUN mkdir -p /docker-entrypoint-initdb.d
+
+# Set up PostGIS extensions and initialization (comprehensive like Kartoza)
 RUN echo "CREATE EXTENSION IF NOT EXISTS postgis;" > /docker-entrypoint-initdb.d/01-init-postgis.sql \
     && echo "CREATE EXTENSION IF NOT EXISTS postgis_topology;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
     && echo "CREATE EXTENSION IF NOT EXISTS postgis_raster;" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
@@ -142,23 +179,45 @@ RUN echo "CREATE EXTENSION IF NOT EXISTS postgis;" > /docker-entrypoint-initdb.d
     && echo "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
     && echo "CREATE EXTENSION IF NOT EXISTS \"pg_trgm\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
     && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gin\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
-    && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gist\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql
+    && echo "CREATE EXTENSION IF NOT EXISTS \"btree_gist\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"h3\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS \"pg_repack\";" >> /docker-entrypoint-initdb.d/01-init-postgis.sql
 
-# Create a function to get PostGIS version info
+# Create enhanced PostGIS functions (like Kartoza)
 RUN echo "CREATE OR REPLACE FUNCTION get_postgis_info() RETURNS TABLE(extension text, version text) AS \$\$ BEGIN RETURN QUERY SELECT 'PostGIS'::text, PostGIS_Version()::text UNION ALL SELECT 'PostGIS Scripts'::text, PostGIS_Scripts_Version()::text UNION ALL SELECT 'PostGIS Lib'::text, PostGIS_Lib_Version()::text UNION ALL SELECT 'GEOS'::text, PostGIS_GEOS_Version()::text UNION ALL SELECT 'PROJ'::text, PostGIS_PROJ_Version()::text UNION ALL SELECT 'GDAL'::text, PostGIS_GDAL_Version()::text; END; \$\$ LANGUAGE plpgsql;" > /docker-entrypoint-initdb.d/02-postgis-functions.sql
 
 # Create a function to check spatial data integrity
 RUN echo "CREATE OR REPLACE FUNCTION check_spatial_integrity() RETURNS TABLE(table_name text, column_name text, geometry_count bigint, invalid_count bigint) AS \$\$ BEGIN RETURN QUERY SELECT f_table_name::text, f_geometry_column::text, COUNT(*)::bigint as geometry_count, COUNT(*) FILTER (WHERE NOT ST_IsValid(geometry))::bigint as invalid_count FROM geometry_columns gc JOIN information_schema.tables t ON t.table_name = gc.f_table_name WHERE t.table_schema = 'public' GROUP BY f_table_name, f_geometry_column; END; \$\$ LANGUAGE plpgsql;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
 
-# Log successful initialization
-RUN echo "DO \$\$ BEGIN RAISE NOTICE 'PostGIS extensions initialized successfully'; RAISE NOTICE 'PostGIS Version: %', PostGIS_Version(); RAISE NOTICE 'GEOS Version: %', PostGIS_GEOS_Version(); RAISE NOTICE 'PROJ Version: %', PostGIS_PROJ_Version(); END \$\$;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+# Create performance monitoring functions
+RUN echo "CREATE OR REPLACE FUNCTION get_database_stats() RETURNS TABLE(metric text, value text) AS \$\$ BEGIN RETURN QUERY SELECT 'Database Size'::text, pg_size_pretty(pg_database_size(current_database()))::text UNION ALL SELECT 'Active Connections'::text, count(*)::text FROM pg_stat_activity WHERE state = 'active' UNION ALL SELECT 'Cache Hit Ratio'::text, round(100.0 * sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)), 2)::text || '%' FROM pg_statio_user_tables; END; \$\$ LANGUAGE plpgsql;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
 
-# Health check
+# Create spatial analysis helper functions
+RUN echo "CREATE OR REPLACE FUNCTION analyze_spatial_indexes() RETURNS TABLE(table_name text, index_name text, index_size text, index_usage text) AS \$\$ BEGIN RETURN QUERY SELECT schemaname||'.'||tablename as table_name, indexname as index_name, pg_size_pretty(pg_relation_size(indexrelid)) as index_size, CASE WHEN idx_scan = 0 THEN 'Unused' WHEN idx_scan < 10 THEN 'Rarely Used' WHEN idx_scan < 100 THEN 'Occasionally Used' ELSE 'Frequently Used' END as index_usage FROM pg_stat_user_indexes ORDER BY pg_relation_size(indexrelid) DESC; END; \$\$ LANGUAGE plpgsql;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Log successful initialization with enhanced information
+RUN echo "DO \$\$ BEGIN RAISE NOTICE 'Enhanced PostGIS ARM64 image initialized successfully'; RAISE NOTICE 'PostGIS Version: %', PostGIS_Version(); RAISE NOTICE 'GEOS Version: %', PostGIS_GEOS_Version(); RAISE NOTICE 'PROJ Version: %', PostGIS_PROJ_Version(); RAISE NOTICE 'GDAL Version: %', PostGIS_GDAL_Version(); RAISE NOTICE 'Build: ARM64 Enhanced with Kartoza features'; END \$\$;" >> /docker-entrypoint-initdb.d/02-postgis-functions.sql
+
+# Create startup script for better error handling
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "🚀 Starting Enhanced PostGIS ARM64..."\n\
+echo "📊 PostGIS Version: $(PostGIS_Version 2>/dev/null || echo "Not available yet")"\n\
+echo "🔧 Platform: ARM64"\n\
+echo "⚡ Features: Enhanced with Kartoza optimizations"\n\
+\n\
+# Start PostgreSQL with enhanced logging\n\
+exec postgres "$@"\n\
+' > /usr/local/bin/start-enhanced-postgis.sh \
+    && chmod +x /usr/local/bin/start-enhanced-postgis.sh
+
+# Enhanced health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD pg_isready -U postgres || exit 1
+    CMD pg_isready -U postgres && psql -U postgres -c "SELECT PostGIS_Version();" > /dev/null 2>&1 || exit 1
 
 # Expose port
 EXPOSE 5432
 
 # Set default command
-CMD ["postgres"] 
+CMD ["/usr/local/bin/start-enhanced-postgis.sh"] 
