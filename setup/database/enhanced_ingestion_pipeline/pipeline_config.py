@@ -51,31 +51,31 @@ ENHANCED_DATA_SOURCES = {
         }
     },
     
-    'voa_historic': {
-        'priority': 1,
-        'description': 'VOA Historic NNDR Data',
-        'file_pattern': 'uk-englandwales-ndr-2023-listentries-compiled-epoch-0015-baseline-historic-csv.csv',
-        'format': 'pipe_delimited',
-        'coordinate_system': 'wgs84',
-        'quality_score': 0.95,
-        'update_frequency': 'annual',
-        'source_type': 'nndr',
-        'enabled': True,
-        'field_mapping': {
-            'ba_reference': 2,
-            'property_category_code': 3,
-            'property_description': 4,
-            'scat_code': 5,
-            'property_address': 6,
-            'street_descriptor': 8,
-            'post_town': 9,
-            'locality': 10,
-            'postcode': 11,
-            'rateable_value': 12,
-            'uprn': 13,
-            'effective_date': 15
-        }
-    },
+    # 'voa_historic': {
+    #     'priority': 1,
+    #     'description': 'VOA Historic NNDR Data',
+    #     'file_pattern': 'uk-englandwales-ndr-2023-listentries-compiled-epoch-0015-baseline-historic-csv.csv',
+    #     'format': 'pipe_delimited',
+    #     'coordinate_system': 'wgs84',
+    #     'quality_score': 0.95,
+    #     'update_frequency': 'annual',
+    #     'source_type': 'nndr',
+    #     'enabled': True,
+    #     'field_mapping': {
+    #         'ba_reference': 2,
+    #         'property_category_code': 3,
+    #         'property_description': 4,
+    #         'scat_code': 5,
+    #         'property_address': 6,
+    #         'street_descriptor': 8,
+    #         'post_town': 9,
+    #         'locality': 10,
+    #         'postcode': 11,
+    #         'rateable_value': 12,
+    #         'uprn': 13,
+    #         'effective_date': 15
+    #     }
+    # },
     
     'local_council_2015': {
         'priority': 2,
@@ -104,28 +104,28 @@ ENHANCED_DATA_SOURCES = {
         }
     },
     
-    'sample_nndr': {
-        'priority': 3,
-        'description': 'Sample NNDR Data - Development and testing',
-        'file_pattern': 'sample_nndr.csv',
-        'format': 'csv',
-        'coordinate_system': 'wgs84',
-        'quality_score': 0.80,
-        'update_frequency': 'manual',
-        'source_type': 'nndr',
-        'enabled': True,
-        'field_mapping': {
-            'PropertyID': 'ba_reference',
-            'Address': 'property_address',
-            'Postcode': 'postcode',
-            'RateableValue': 'rateable_value',
-            'Description': 'property_description',
-            'Latitude': 'latitude',
-            'Longitude': 'longitude',
-            'CurrentRatingStatus': 'property_category_code',
-            'LastBilledDate': 'effective_date'
-        }
-    },
+    # 'sample_nndr': {
+    #     'priority': 3,
+    #     'description': 'Sample NNDR Data - Development and testing',
+    #     'file_pattern': 'sample_nndr.csv',
+    #     'format': 'csv',
+    #     'coordinate_system': 'wgs84',
+    #     'quality_score': 0.80,
+    #     'update_frequency': 'manual',
+    #     'source_type': 'nndr',
+    #     'enabled': True,
+    #     'field_mapping': {
+    #         'PropertyID': 'ba_reference',
+    #         'Address': 'property_address',
+    #         'Postcode': 'postcode',
+    #         'RateableValue': 'rateable_value',
+    #         'Description': 'property_description',
+    #         'Latitude': 'latitude',
+    #         'Longitude': 'longitude',
+    #         'CurrentRatingStatus': 'property_category_code',
+    #         'LastBilledDate': 'effective_date'
+    #     }
+    # },
     
     # Geospatial Reference Data
     'os_uprn': {
@@ -156,7 +156,7 @@ ENHANCED_DATA_SOURCES = {
         'quality_score': 0.90,
         'update_frequency': 'quarterly',
         'source_type': 'reference',
-        'enabled': True,
+        'enabled': False,  # Disabled due to path resolution issues
         'field_mapping': {
             'postcode': 'postcode',
             'easting': 'x_coordinate',

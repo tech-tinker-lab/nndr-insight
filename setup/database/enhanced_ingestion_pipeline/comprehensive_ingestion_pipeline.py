@@ -86,15 +86,15 @@ class ComprehensiveIngestionPipeline:
                 'quality_score': 0.98,
                 'processor': self.process_os_uprn_data
             },
-            'codepoint': {
-                'priority': 2,
-                'description': 'CodePoint Open Postcodes',
-                'file_pattern': 'codepo_gb/Data/CSV/*.csv',
-                'format': 'csv',
-                'coordinate_system': 'osgb',
-                'quality_score': 0.90,
-                'processor': self.process_codepoint_data
-            },
+            # 'codepoint': {
+            #     'priority': 2,
+            #     'description': 'CodePoint Open Postcodes',
+            #     'file_pattern': 'codepo_gb/Data/CSV/*.csv',
+            #     'format': 'csv',
+            #     'coordinate_system': 'osgb',
+            #     'quality_score': 0.90,
+            #     'processor': self.process_codepoint_data
+            # },
             'onspd': {
                 'priority': 1,
                 'description': 'ONS Postcode Directory',
@@ -362,28 +362,38 @@ class ComprehensiveIngestionPipeline:
         group_counter = 1
         
         for criteria in duplicate_criteria:
-            # Group by criteria
-            groups = df.groupby(criteria).size().reset_index(name='count')
-            duplicate_groups = groups[groups['count'] > 1]
-            
-            for _, group in duplicate_groups.iterrows():
-                # Find matching records
-                mask = True
-                for col in criteria:
-                    if col in df.columns:
-                        mask = mask & (df[col] == group[col])
+            # Check if all criteria columns exist in the dataframe
+            available_criteria = [col for col in criteria if col in df.columns]
+            if not available_criteria:
+                continue
                 
-                duplicate_indices = df[mask].index
+            try:
+                # Group by criteria
+                groups = df.groupby(available_criteria).size().reset_index(name='count')
+                duplicate_groups = groups[groups['count'] > 1]
                 
-                if len(duplicate_indices) > 1:
-                    # Assign group ID
-                    df.loc[duplicate_indices, 'duplicate_group_id'] = group_counter
+                for _, group in duplicate_groups.iterrows():
+                    # Find matching records
+                    mask = True
+                    for col in available_criteria:
+                        if col in df.columns:
+                            mask = mask & (df[col] == group[col])
                     
-                    # Mark preferred record (highest priority source)
-                    preferred_idx = df.loc[duplicate_indices, 'source_priority'].idxmin()
-                    df.loc[preferred_idx, 'is_preferred_record'] = True
+                    duplicate_indices = df[mask].index
                     
-                    group_counter += 1
+                    if len(duplicate_indices) > 1:
+                        # Assign group ID
+                        df.loc[duplicate_indices, 'duplicate_group_id'] = group_counter
+                        
+                        # Mark preferred record (highest priority source)
+                        if 'source_priority' in df.columns:
+                            preferred_idx = df.loc[duplicate_indices, 'source_priority'].idxmin()
+                            df.loc[preferred_idx, 'is_preferred_record'] = True
+                        
+                        group_counter += 1
+            except Exception as e:
+                logger.warning(f"Error in duplicate detection for criteria {available_criteria}: {e}")
+                continue
         
         return df
     
@@ -393,9 +403,15 @@ class ComprehensiveIngestionPipeline:
         
         try:
             with self.connect_database() as conn:
-                # Disable indexes for faster insertion
+                # Disable indexes for faster insertion (skip if table has foreign key references)
                 with conn.cursor() as cursor:
-                    cursor.execute(f"ALTER TABLE {table_name} SET UNLOGGED")
+                    try:
+                        cursor.execute(f"ALTER TABLE {table_name} SET UNLOGGED")
+                    except Exception as e:
+                        if "references" in str(e).lower():
+                            logger.warning(f"Skipping UNLOGGED for {table_name} due to foreign key references")
+                        else:
+                            raise
                 
                 # Prepare data for insertion
                 columns = df.columns.tolist()
@@ -413,7 +429,13 @@ class ComprehensiveIngestionPipeline:
                 
                 # Re-enable logging and rebuild indexes
                 with conn.cursor() as cursor:
-                    cursor.execute(f"ALTER TABLE {table_name} SET LOGGED")
+                    try:
+                        cursor.execute(f"ALTER TABLE {table_name} SET LOGGED")
+                    except Exception as e:
+                        if "references" in str(e).lower():
+                            logger.warning(f"Skipping LOGGED for {table_name} due to foreign key references")
+                        else:
+                            raise
                     cursor.execute(f"REINDEX TABLE {table_name}")
                 
                 conn.commit()
