@@ -67,6 +67,7 @@ class ComprehensiveIngestionPipeline:
                 'format': 'pipe_delimited',
                 'coordinate_system': 'wgs84',
                 'quality_score': 0.95,
+                'source_type': 'nndr',
                 'processor': self.process_voa_data
             },
             'local_council_2015': {
@@ -76,6 +77,7 @@ class ComprehensiveIngestionPipeline:
                 'format': 'csv',
                 'coordinate_system': 'unknown',
                 'quality_score': 0.85,
+                'source_type': 'nndr',
                 'processor': self.process_local_council_data
             },
             'os_uprn': {
@@ -85,17 +87,19 @@ class ComprehensiveIngestionPipeline:
                 'format': 'csv',
                 'coordinate_system': 'osgb',
                 'quality_score': 0.98,
+                'source_type': 'reference',
                 'processor': self.process_os_uprn_data
             },
-            # 'codepoint': {
-            #     'priority': 2,
-            #     'description': 'CodePoint Open Postcodes',
-            #     'file_pattern': 'codepo_gb/Data/CSV/*.csv',
-            #     'format': 'csv',
-            #     'coordinate_system': 'osgb',
-            #     'quality_score': 0.90,
-            #     'processor': self.process_codepoint_data
-            # },
+            'codepoint': {
+                'priority': 2,
+                'description': 'CodePoint Open Postcodes',
+                'file_pattern': 'codepo_gb/Data/CSV/*.csv',
+                'format': 'csv',
+                'coordinate_system': 'osgb',
+                'quality_score': 0.90,
+                'source_type': 'reference',
+                'processor': self.process_codepoint_data
+            },
             'onspd': {
                 'priority': 1,
                 'description': 'ONS Postcode Directory',
@@ -103,7 +107,48 @@ class ComprehensiveIngestionPipeline:
                 'format': 'csv',
                 'coordinate_system': 'osgb',
                 'quality_score': 0.95,
+                'source_type': 'reference',
                 'processor': self.process_onspd_data
+            },
+            'os_open_names': {
+                'priority': 1,
+                'description': 'OS Open Names',
+                'file_pattern': 'opname_csv_gb/Data/*.csv',
+                'format': 'csv',
+                'coordinate_system': 'osgb',
+                'quality_score': 0.95,
+                'source_type': 'reference',
+                'processor': self.process_os_open_names_data
+            },
+            'os_open_usrn': {
+                'priority': 1,
+                'description': 'OS Open USRN',
+                'file_pattern': 'osopenusrn_202507_gpkg/*.gpkg',
+                'format': 'gpkg',
+                'coordinate_system': 'osgb',
+                'quality_score': 0.98,
+                'source_type': 'reference',
+                'processor': self.process_os_open_usrn_data
+            },
+            'lad_boundaries': {
+                'priority': 1,
+                'description': 'Local Authority District Boundaries',
+                'file_pattern': 'LAD_MAY_2025_UK_BFC.shp',
+                'format': 'shapefile',
+                'coordinate_system': 'osgb',
+                'quality_score': 0.98,
+                'source_type': 'reference',
+                'processor': self.process_lad_boundaries_data
+            },
+            'os_open_map_local': {
+                'priority': 1,
+                'description': 'OS Open Map Local',
+                'file_pattern': 'opmplc_gml3_gb/data/*/*.gml',
+                'format': 'gml',
+                'coordinate_system': 'osgb',
+                'quality_score': 0.95,
+                'source_type': 'reference',
+                'processor': self.process_os_open_map_local_data
             }
         }
     
@@ -159,7 +204,7 @@ class ComprehensiveIngestionPipeline:
         # Generate property_id from UPRN if not present
         needs_property_id = 'property_id' not in df.columns
         if not needs_property_id and 'property_id' in df.columns:
-            needs_property_id = df['property_id'].isna().all()
+            needs_property_id = df['property_id'].isna().all().item() if hasattr(df['property_id'].isna().all(), 'item') else df['property_id'].isna().all()
         
         if needs_property_id:
             if 'uprn' in df.columns:
@@ -290,69 +335,44 @@ class ComprehensiveIngestionPipeline:
             raise
     
     def process_os_uprn_data(self, file_path: str) -> pd.DataFrame:
-        """Process OS UPRN data"""
+        """Process OS UPRN data for os_open_uprn table"""
         logger.info(f"Processing OS UPRN data: {file_path}")
         
         try:
             chunk_size = 50000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-                # OS UPRN data provides the primary property identifier
-                chunk['uprn'] = chunk.get('UPRN', None)  # Primary identifier
-                chunk['ba_reference'] = None  # Not provided by OS UPRN
-                chunk['property_id'] = chunk['uprn'].astype(str) if 'uprn' in chunk.columns else None  # Derived from UPRN
-                chunk['property_address'] = None
-                chunk['street_descriptor'] = None
-                chunk['locality'] = None
-                chunk['post_town'] = None
-                chunk['administrative_area'] = None
-                chunk['postcode'] = None
-                chunk['property_category_code'] = None
-                chunk['property_description'] = None
-                chunk['rateable_value'] = None
-                chunk['effective_date'] = None
-                chunk['x_coordinate'] = chunk.get('X_COORDINATE', None)
-                chunk['y_coordinate'] = chunk.get('Y_COORDINATE', None)
-                chunk['latitude'] = chunk.get('LATITUDE', None)
-                chunk['longitude'] = chunk.get('LONGITUDE', None)
-                yield self._align_to_schema(chunk)
+                # OS UPRN data for reference table - keep original structure
+                # Only keep the columns that exist in the os_open_uprn table
+                required_columns = ['uprn', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude']
+                
+                # Map column names if needed
+                column_mapping = {
+                    'UPRN': 'uprn',
+                    'X_COORDINATE': 'x_coordinate', 
+                    'Y_COORDINATE': 'y_coordinate',
+                    'LATITUDE': 'latitude',
+                    'LONGITUDE': 'longitude'
+                }
+                
+                # Rename columns if they exist
+                for old_name, new_name in column_mapping.items():
+                    if old_name in chunk.columns:
+                        chunk[new_name] = chunk[old_name]
+                
+                # Keep only the required columns
+                chunk = chunk[[col for col in required_columns if col in chunk.columns]]
+                
+                # Add missing columns as None
+                for col in required_columns:
+                    if col not in chunk.columns:
+                        chunk[col] = None
+                
+                yield chunk[required_columns]
                 
         except Exception as e:
             logger.error(f"Error processing OS UPRN file: {e}")
             raise
-    
-    def process_codepoint_data(self, directory_path: str) -> pd.DataFrame:
-        """Process CodePoint data files"""
-        logger.info(f"Processing CodePoint data: {directory_path}")
-        
-        csv_files = [f for f in os.listdir(directory_path) if f.endswith('.csv')]
-        
-        for csv_file in csv_files:
-            file_path = os.path.join(directory_path, csv_file)
-            logger.info(f"Processing CodePoint file: {csv_file}")
-            
-            try:
-                chunk_size = 10000
-                for chunk in pd.read_csv(file_path, chunksize=chunk_size, header=None, 
-                                       names=['postcode', 'positional_quality', 'easting', 'northing', 
-                                             'country_code', 'nhs_regional_ha', 'nhs_ha', 'admin_county', 
-                                             'admin_district', 'admin_ward']):
-                    
-                    # Add source information
-                    chunk['data_source'] = 'codepoint'
-                    chunk['source_priority'] = 2
-                    chunk['source_confidence_score'] = 0.90
-                    chunk['last_source_update'] = datetime.now()
-                    chunk['source_file_reference'] = csv_file
-                    
-                    # Clean postcodes
-                    chunk['postcode'] = chunk['postcode'].str.strip().str.upper()
-                    
-                    yield chunk
-                    
-            except Exception as e:
-                logger.error(f"Error processing CodePoint file {csv_file}: {e}")
-                continue
-    
+
     def process_onspd_data(self, file_path: str) -> pd.DataFrame:
         """Process ONSPD data"""
         logger.info(f"Processing ONSPD data: {file_path}")
@@ -360,23 +380,49 @@ class ComprehensiveIngestionPipeline:
         try:
             chunk_size = 50000
             for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
-                chunk['uprn'] = None
-                chunk['ba_reference'] = None
-                chunk['property_address'] = None
-                chunk['street_descriptor'] = None
-                chunk['locality'] = None
-                chunk['post_town'] = None
-                chunk['administrative_area'] = None
-                chunk['postcode'] = chunk.get('PCD', None)
-                chunk['property_category_code'] = None
-                chunk['property_description'] = None
-                chunk['rateable_value'] = None
-                chunk['effective_date'] = None
-                chunk['x_coordinate'] = chunk.get('x', None)
-                chunk['y_coordinate'] = chunk.get('y', None)
-                chunk['latitude'] = chunk.get('lat', None)
-                chunk['longitude'] = chunk.get('long', None)
-                yield self._align_to_schema(chunk)
+                # Keep only the columns that exist in the onspd table
+                required_columns = ['pcds', 'pcd', 'lat', 'long', 'ctry', 'oslaua', 'osward', 'parish', 
+                                  'oa11', 'lsoa11', 'msoa11', 'imd', 'rgn', 'pcon', 'ur01ind', 'oac11', 
+                                  'oseast1m', 'osnrth1m', 'dointr', 'doterm']
+                
+                # Map column names if needed
+                column_mapping = {
+                    'PCDS': 'pcds',
+                    'PCD': 'pcd', 
+                    'LAT': 'lat',
+                    'LONG': 'long',
+                    'CTRY': 'ctry',
+                    'OSLAUA': 'oslaua',
+                    'OSWARD': 'osward',
+                    'PARISH': 'parish',
+                    'OA11': 'oa11',
+                    'LSOA11': 'lsoa11',
+                    'MSOA11': 'msoa11',
+                    'IMD': 'imd',
+                    'RGN': 'rgn',
+                    'PCON': 'pcon',
+                    'UR01IND': 'ur01ind',
+                    'OAC11': 'oac11',
+                    'OSEAST1M': 'oseast1m',
+                    'OSNRTH1M': 'osnrth1m',
+                    'DOINTR': 'dointr',
+                    'DOTERM': 'doterm'
+                }
+                
+                # Rename columns if they exist
+                for old_name, new_name in column_mapping.items():
+                    if old_name in chunk.columns:
+                        chunk[new_name] = chunk[old_name]
+                
+                # Keep only the required columns that exist
+                chunk = chunk[[col for col in required_columns if col in chunk.columns]]
+                
+                # Add missing columns as None
+                for col in required_columns:
+                    if col not in chunk.columns:
+                        chunk[col] = None
+                
+                yield chunk[required_columns]
                 
         except Exception as e:
             logger.error(f"Error processing ONSPD file: {e}")
@@ -489,6 +535,7 @@ class ComprehensiveIngestionPipeline:
         'onspd': 'onspd',
         'codepoint': 'code_point_open',
         'os_open_names': 'os_open_names',
+        'os_open_usrn': 'os_open_usrn',
         'lad_boundaries': 'lad_boundaries',
         'os_open_map_local': 'os_open_map_local',
     }
@@ -528,14 +575,23 @@ class ComprehensiveIngestionPipeline:
                     result = future.result()
                     for chunk in result:
                         chunk = self.detect_duplicates(chunk)
-                        # Determine target table
-                        if source_name in self.REFERENCE_TABLE_MAP:
-                            table_name = self.REFERENCE_TABLE_MAP[source_name]
-                            chunk = self._align_to_table_schema(chunk, table_name)
+                        # Determine target table based on source type
+                        source_config = self.data_sources.get(source_name, {})
+                        source_type = source_config.get('source_type', 'unknown')
+                        
+                        if source_type == 'reference':
+                            # Reference data goes to specific tables, not master_gazetteer
+                            if source_name in self.REFERENCE_TABLE_MAP:
+                                table_name = self.REFERENCE_TABLE_MAP[source_name]
+                                chunk = self._align_to_table_schema(chunk, table_name)
+                                self.bulk_insert_data(chunk, table_name)
+                            else:
+                                logger.warning(f"No table mapping found for reference source: {source_name}")
+                                continue
                         else:
-                            table_name = 'master_gazetteer'
-                            chunk = self._align_to_schema(chunk)
-                        self.bulk_insert_data(chunk, table_name)
+                            # NNDR data: skip insertion, just log for now
+                            logger.info(f"Skipping insertion for NNDR data source: {source_name} (gather only)")
+                            continue
                 except Exception as e:
                     logger.error(f"Processing failed: {e}")
                     self.stats['total_errors'] += 1
@@ -554,6 +610,11 @@ class ComprehensiveIngestionPipeline:
         data_files = []
         
         for source_name, config in self.data_sources.items():
+            # Skip NNDR data sources completely - don't process them at all
+            if config.get('source_type') == 'nndr':
+                logger.info(f"Skipping NNDR data source: {source_name} (not processing)")
+                continue
+                
             file_pattern = config['file_pattern']
             
             if '*' in file_pattern:
@@ -580,6 +641,9 @@ class ComprehensiveIngestionPipeline:
             # Initialize pipeline
             if not self.initialize_pipeline():
                 return False
+            
+            # Clean reference tables before insertion
+            self.clean_reference_tables()
             
             # Find data files
             data_files = self.find_data_files()
@@ -638,6 +702,184 @@ class ComprehensiveIngestionPipeline:
         logger.info(f"Total errors: {self.stats['total_errors']}")
         logger.info(f"Processing time: {self.stats['processing_time']:.2f} seconds")
         logger.info("=" * 60)
+
+    def process_lad_boundaries_data(self, file_path: str) -> pd.DataFrame:
+        """Process LAD boundaries shapefile data"""
+        logger.info(f"Processing LAD boundaries data: {file_path}")
+        
+        try:
+            import geopandas as gpd
+            
+            # Read the shapefile
+            gdf = gpd.read_file(file_path)
+            
+            # Convert to DataFrame and keep only necessary columns
+            df = gdf.drop(columns=['geometry'])
+            
+            # Add any missing columns that the lad_boundaries table expects
+            expected_columns = ['lad_code', 'lad_name', 'lad_type']
+            
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = None
+            
+            yield df
+            
+        except Exception as e:
+            logger.error(f"Error processing LAD boundaries file: {e}")
+            raise
+
+    def process_os_open_map_local_data(self, file_path: str) -> pd.DataFrame:
+        """Process OS Open Map Local GML data"""
+        logger.info(f"Processing OS Open Map Local data: {file_path}")
+        
+        try:
+            import geopandas as gpd
+            
+            # Read the GML file
+            gdf = gpd.read_file(file_path)
+            
+            # Convert to DataFrame and keep only necessary columns
+            df = gdf.drop(columns=['geometry'])
+            
+            # Add any missing columns that the os_open_map_local table expects
+            expected_columns = ['feature_id', 'feature_type', 'theme', 'created_at', 'updated_at']
+            
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = None
+            
+            yield df[expected_columns]
+            
+        except Exception as e:
+            logger.error(f"Error processing OS Open Map Local file: {e}")
+            raise
+
+    def process_codepoint_data(self, file_path: str) -> pd.DataFrame:
+        """Process CodePoint Open postcode data"""
+        logger.info(f"Processing CodePoint data: {file_path}")
+        
+        try:
+            chunk_size = 10000
+            for chunk in pd.read_csv(file_path, chunksize=chunk_size, header=None, 
+                                   names=['postcode', 'positional_quality_indicator', 'eastings', 'northings', 
+                                         'country_code', 'nhs_regional_ha_code', 'nhs_ha_code', 'admin_county_code', 
+                                         'admin_district_code', 'admin_ward_code']):
+                
+                # Clean postcodes
+                chunk['postcode'] = chunk['postcode'].str.strip().str.upper()
+                
+                # Keep only the columns that exist in the code_point_open table
+                required_columns = ['postcode', 'positional_quality_indicator', 'eastings', 'northings', 
+                                  'country_code', 'nhs_regional_ha_code', 'nhs_ha_code', 'admin_county_code', 
+                                  'admin_district_code', 'admin_ward_code']
+                
+                # Add missing columns that exist in the actual table
+                chunk['id'] = None  # Will be auto-generated
+                chunk['location'] = None
+                chunk['created_at'] = None
+                
+                yield chunk[required_columns]
+                
+        except Exception as e:
+            logger.error(f"Error processing CodePoint file: {e}")
+            raise
+
+    def process_os_open_names_data(self, file_path: str) -> pd.DataFrame:
+        """Process OS Open Names address data"""
+        logger.info(f"Processing OS Open Names data: {file_path}")
+        
+        try:
+            chunk_size = 10000
+            for chunk in pd.read_csv(file_path, chunksize=chunk_size):
+                # Keep only the columns that exist in the os_open_names table
+                required_columns = ['id', 'os_id', 'names_uri', 'name1', 'name1_lang', 'name2', 'name2_lang',
+                                  'type', 'local_type', 'geometry_x', 'geometry_y', 'most_detail_view_res',
+                                  'least_detail_view_res', 'mbr_xmin', 'mbr_ymin', 'mbr_xmax', 'mbr_ymax',
+                                  'postcode_district', 'postcode_district_uri', 'populated_place', 'populated_place_uri',
+                                  'admin_area', 'admin_area_uri', 'country', 'country_uri', 'created_at']
+                
+                # Map column names if needed
+                column_mapping = {
+                    'ID': 'id',
+                    'NAMES_URI': 'names_uri',
+                    'NAME1': 'name1',
+                    'NAME1_LANG': 'name1_lang',
+                    'NAME2': 'name2',
+                    'NAME2_LANG': 'name2_lang',
+                    'TYPE': 'type',
+                    'LOCAL_TYPE': 'local_type',
+                    'GEOMETRY_X': 'geometry_x',
+                    'GEOMETRY_Y': 'geometry_y'
+                }
+                
+                # Rename columns if they exist
+                for old_name, new_name in column_mapping.items():
+                    if old_name in chunk.columns:
+                        chunk[new_name] = chunk[old_name]
+                
+                # Keep only the required columns that exist
+                chunk = chunk[[col for col in required_columns if col in chunk.columns]]
+                
+                # Add missing columns as None
+                for col in required_columns:
+                    if col not in chunk.columns:
+                        chunk[col] = None
+                
+                yield chunk[required_columns]
+                
+        except Exception as e:
+            logger.error(f"Error processing OS Open Names file: {e}")
+            raise
+
+    def process_os_open_usrn_data(self, file_path: str) -> pd.DataFrame:
+        """Process OS Open USRN data"""
+        logger.info(f"Processing OS Open USRN data: {file_path}")
+        
+        try:
+            import geopandas as gpd
+            
+            # Read the GeoPackage file
+            gdf = gpd.read_file(file_path)
+            
+            # Convert to DataFrame and keep only necessary columns
+            df = gdf.drop(columns=['geometry'])
+            
+            # Add any missing columns that the os_open_usrn table expects
+            expected_columns = ['usrn', 'street_name', 'locality', 'town', 'administrative_area', 'postcode', 'geometry_x', 'geometry_y']
+            
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = None
+            
+            yield df[expected_columns]
+            
+        except Exception as e:
+            logger.error(f"Error processing OS Open USRN file: {e}")
+            raise
+
+    def clean_reference_tables(self):
+        """Clean (truncate) all reference tables before insertion"""
+        logger.info("Cleaning reference tables before insertion...")
+        
+        reference_tables = list(self.REFERENCE_TABLE_MAP.values())
+        
+        try:
+            with self.connect_database() as conn:
+                with conn.cursor() as cursor:
+                    for table_name in reference_tables:
+                        try:
+                            cursor.execute(f"TRUNCATE TABLE {table_name} RESTART IDENTITY CASCADE")
+                            logger.info(f"[OK] Cleaned table: {table_name}")
+                        except Exception as e:
+                            logger.warning(f"[WARN] Could not clean table {table_name}: {e}")
+                    
+                    conn.commit()
+                    logger.info("[OK] All reference tables cleaned successfully")
+                    
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to clean reference tables: {e}")
+            raise
 
 def main():
     """Main execution function"""

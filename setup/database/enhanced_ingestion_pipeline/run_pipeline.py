@@ -34,7 +34,10 @@ def print_pipeline_info():
     print("COMPREHENSIVE DATA INGESTION PIPELINE")
     print("=" * 80)
     
-    enabled_sources = get_enabled_sources()
+    # Create a temporary pipeline to get data sources
+    pipeline = ComprehensiveIngestionPipeline()
+    enabled_sources = pipeline.data_sources
+    
     print(f"\nEnabled Data Sources ({len(enabled_sources)}):")
     print("-" * 60)
     
@@ -50,7 +53,8 @@ def print_pipeline_info():
     print("Data Sources by Type:")
     print("-" * 30)
     for source_type in ['nndr', 'reference', 'property_sales', 'market_analysis', 'economic_indicators']:
-        sources = get_sources_by_type(source_type)
+        sources = {name: config for name, config in enabled_sources.items() 
+                  if config.get('source_type') == source_type}
         if sources:
             print(f"{source_type.upper()}: {len(sources)} sources")
             for source_name in sources.keys():
@@ -100,10 +104,11 @@ def run_pipeline(data_directory: Optional[str] = None, source_type: Optional[str
         
         if dry_run:
             print("🔍 DRY RUN MODE - No data will be inserted")
-            # Just validate and show what would be processed
-            enabled_sources = get_enabled_sources()
+            # Use data sources from the pipeline class instead of config
+            enabled_sources = pipeline.data_sources
             if source_type:
-                enabled_sources = get_sources_by_type(source_type)
+                enabled_sources = {name: config for name, config in enabled_sources.items() 
+                                 if config.get('source_type') == source_type}
             
             print(f"\nWould process {len(enabled_sources)} data sources:")
             for source_name, config in enabled_sources.items():

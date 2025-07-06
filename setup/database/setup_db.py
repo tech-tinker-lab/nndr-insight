@@ -163,6 +163,21 @@ def main():
         );
         CREATE INDEX IF NOT EXISTS os_open_names_geom_idx ON os_open_names USING GIST (geom);
         """,
+        # OS Open USRN
+        """
+        CREATE TABLE IF NOT EXISTS os_open_usrn (
+            id SERIAL PRIMARY KEY,
+            usrn VARCHAR(20),
+            street_name VARCHAR(255),
+            locality VARCHAR(255),
+            town VARCHAR(255),
+            administrative_area VARCHAR(255),
+            postcode VARCHAR(10),
+            geometry_x DOUBLE PRECISION,
+            geometry_y DOUBLE PRECISION,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
         # NNDR/VOA tables (simplified, expand as needed)
         """
         CREATE TABLE IF NOT EXISTS nndr_rating_list (
