@@ -1,0 +1,176 @@
+import os
+import glob
+import time
+import fiona
+import sqlalchemy
+from sqlalchemy import text, create_engine
+from shapely.geometry import shape
+from shapely.wkb import dumps as wkb_dumps
+from dotenv import load_dotenv
+from backend.services.db_service import get_engine
+
+# Load .env file from backend directory
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'backend', '.env'))
+
+# --- Configuration ---
+USER = os.getenv("PGUSER")
+PASSWORD = os.getenv("PGPASSWORD")
+HOST = os.getenv("PGHOST")
+PORT = os.getenv("PGPORT")
+DBNAME = os.getenv("PGDATABASE")
+TABLE_NAME = "os_open_map_local"
+BATCH_SIZE = 1000
+
+GML_ROOT = os.path.join(os.path.dirname(__file__), '..', '..', 'backend', 'data', 'opmplc_gml3_gb', 'data')
+
+# --- GML Collection ---
+def collect_gml_files():
+    return glob.glob(os.path.join(GML_ROOT, "**", "*.gml"), recursive=True)
+
+# --- Parse GML Features ---
+def process_gml_file(filepath):
+    records = []
+    try:
+        with fiona.open(filepath, driver="GML") as src:
+            for feature in src:
+                try:
+                    props = feature["properties"]
+                    geom = feature["geometry"]
+                    # Detect feature type (usually the first key in properties, or use src.schema['properties'] if available)
+                    feature_type = feature.get('geometry', {}).get('type')
+                    # Try to get feature type from fiona feature type if available
+                    if not feature_type:
+                        feature_type = props.get('featureType') or props.get('type')
+                    # Standard fields
+                    fid = feature.get("id")
+                    gml_id = props.get("gml_id")
+                    feature_code = props.get("featureCode")
+                    # Remove standard fields from properties for JSONB
+                    extra_props = {k: v for k, v in props.items() if k not in {"gml_id", "featureCode"}}
+                    records.append({
+                        "fid": fid,
+                        "gml_id": gml_id,
+                        "feature_code": feature_code,
+                        "geometry": wkb_dumps(shape(geom), hex=True) if geom else None,
+                        "feature_type": feature_type,
+                        "properties": extra_props
+                    })
+                except Exception as e:
+                    print(f"⚠️ Skipping feature in {os.path.basename(filepath)}: {e}")
+    except Exception as e:
+        print(f"❌ Error reading {os.path.basename(filepath)}: {e}")
+    return records
+
+# --- Bulk Insert ---
+def bulk_insert(engine, records):
+    if not records:
+        return 0
+    stmt = text(f"""
+        INSERT INTO {TABLE_NAME} (
+            fid, gml_id, feature_code, geometry, feature_type, properties
+        ) VALUES (
+            :fid, :gml_id, :feature_code,
+            ST_GeomFromWKB(decode(:geometry, 'hex'), 27700),
+            :feature_type, :properties
+        )
+    """)
+    with engine.begin() as conn:
+        for i in range(0, len(records), BATCH_SIZE):
+            batch = records[i:i+BATCH_SIZE]
+            conn.execute(stmt, batch)
+    return len(records)
+
+# --- Drop & Create Table ---
+def recreate_table(engine):
+    ddl = f"""
+    DROP TABLE IF EXISTS {TABLE_NAME};
+    CREATE TABLE {TABLE_NAME} (
+        id SERIAL PRIMARY KEY,
+        fid TEXT,
+        gml_id TEXT,
+        feature_code INTEGER,
+        geometry geometry(Geometry, 27700),
+        feature_type TEXT,
+        properties JSONB
+    );
+    CREATE INDEX {TABLE_NAME}_geom_idx ON {TABLE_NAME} USING GIST (geometry);
+    CREATE INDEX {TABLE_NAME}_feature_code_idx ON {TABLE_NAME} (feature_code);
+    CREATE INDEX {TABLE_NAME}_feature_type_idx ON {TABLE_NAME} (feature_type);
+    """
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+    print(f"✅ Recreated table `{TABLE_NAME}` with expanded schema.")
+
+# --- Ingest Only Remaining Files ---
+def load_remaining_gml(engine):
+    remaining_files = [
+        "TL.gml",
+        "TM.gml",
+        "TQ.gml",
+        "TR.gml",
+        "TS.gml"
+    ]
+    files = []
+    for fname in remaining_files:
+        # Look for .gml file in subdirectory (e.g., TL/TL.gml)
+        subdir = os.path.join(GML_ROOT, fname[:-4])
+        gml_path = os.path.join(subdir, fname)
+        if os.path.exists(gml_path):
+            files.append(gml_path)
+        else:
+            # Fallback: look for .gml at top level
+            top_level_path = os.path.join(GML_ROOT, fname)
+            if os.path.exists(top_level_path):
+                files.append(top_level_path)
+            else:
+                print(f"⚠️ Could not find {fname} in expected locations.")
+    print(f"📂 Processing only remaining files: {', '.join([os.path.basename(f) for f in files])}")
+    
+    total_features = 0
+    processed_files = 0
+    start_time = time.time()
+
+    for fpath in files:
+        gfs_path = os.path.splitext(fpath)[0] + ".gfs"
+        if os.path.exists(gfs_path):
+            print(f"✅ Found GFS file for {os.path.basename(fpath)}: {os.path.basename(gfs_path)}")
+        else:
+            print(f"⚠️ No GFS file found for {os.path.basename(fpath)}. Fiona/GDAL will infer schema.")
+        try:
+            print(f"Processing {os.path.basename(fpath)}...")
+            records = process_gml_file(fpath)
+            inserted = bulk_insert(engine, records)
+            total_features += inserted
+            processed_files += 1
+            print(f"  ✅ Processed {processed_files}/{len(files)} files, {total_features} features so far")
+        except Exception as e:
+            print(f"❌ Error processing {os.path.basename(fpath)}: {e}")
+
+    elapsed = time.time() - start_time
+    print(f"\n✅ Done. Inserted {total_features} features from {processed_files} files in {elapsed:.1f} seconds.")
+    
+    # Quality check
+    with engine.begin() as conn:
+        result = conn.execute(text(f"SELECT COUNT(*) FROM {TABLE_NAME}"))
+        final_count = result.scalar()
+        print(f"📊 Final table count: {final_count} features")
+        
+        # Show feature code distribution
+        result = conn.execute(text(f"SELECT feature_code, COUNT(*) FROM {TABLE_NAME} GROUP BY feature_code ORDER BY COUNT(*) DESC LIMIT 10"))
+        print(f"\n📈 Top Feature Codes:")
+        for row in result:
+            print(f"  {row[0]}: {row[1]} features")
+
+# --- Main ---
+def main():
+    print("🗺️ Starting OS Open Map Local Corrected Ingestion")
+    print(f"Database: {DBNAME} on {HOST}:{PORT}")
+    print(f"GML Root: {GML_ROOT}")
+    print("📋 Using correct schema: fid, gml_id, feature_code, geometry, feature_type, properties")
+    
+    engine = create_engine(f"postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}")
+    recreate_table(engine)  # <-- Table will be dropped and recreated with expanded schema!
+    load_remaining_gml(engine)
+
+if __name__ == "__main__":
+    main() 

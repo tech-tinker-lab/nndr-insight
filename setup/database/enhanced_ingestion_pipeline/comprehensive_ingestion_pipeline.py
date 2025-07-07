@@ -80,26 +80,26 @@ class ComprehensiveIngestionPipeline:
                 'source_type': 'nndr',
                 'processor': self.process_local_council_data
             },
-            'os_uprn': {
-                'priority': 1,
-                'description': 'OS Open UPRN',
-                'file_pattern': 'osopenuprn_202506_csv/osopenuprn_202506.csv',
-                'format': 'csv',
-                'coordinate_system': 'osgb',
-                'quality_score': 0.98,
-                'source_type': 'reference',
-                'processor': self.process_os_uprn_data
-            },
-            'codepoint': {
-                'priority': 2,
-                'description': 'CodePoint Open Postcodes',
-                'file_pattern': 'codepo_gb/Data/CSV/*.csv',
-                'format': 'csv',
-                'coordinate_system': 'osgb',
-                'quality_score': 0.90,
-                'source_type': 'reference',
-                'processor': self.process_codepoint_data
-            },
+            # 'os_uprn': {
+            #     'priority': 1,
+            #     'description': 'OS Open UPRN',
+            #     'file_pattern': 'osopenuprn_202506_csv/osopenuprn_202506.csv',
+            #     'format': 'csv',
+            #     'coordinate_system': 'osgb',
+            #     'quality_score': 0.98,
+            #     'source_type': 'reference',
+            #     'processor': self.process_os_uprn_data
+            # },
+            # 'codepoint': {
+            #     'priority': 2,
+            #     'description': 'CodePoint Open Postcodes',
+            #     'file_pattern': 'codepo_gb/Data/CSV/*.csv',
+            #     'format': 'csv',
+            #     'coordinate_system': 'osgb',
+            #     'quality_score': 0.90,
+            #     'source_type': 'reference',
+            #     'processor': self.process_codepoint_data
+            # },
             'onspd': {
                 'priority': 1,
                 'description': 'ONS Postcode Directory',
@@ -110,16 +110,16 @@ class ComprehensiveIngestionPipeline:
                 'source_type': 'reference',
                 'processor': self.process_onspd_data
             },
-            'os_open_names': {
-                'priority': 1,
-                'description': 'OS Open Names',
-                'file_pattern': 'opname_csv_gb/Data/*.csv',
-                'format': 'csv',
-                'coordinate_system': 'osgb',
-                'quality_score': 0.95,
-                'source_type': 'reference',
-                'processor': self.process_os_open_names_data
-            },
+            # 'os_open_names': {
+            #     'priority': 1,
+            #     'description': 'OS Open Names',
+            #     'file_pattern': 'opname_csv_gb/Data/*.csv',
+            #     'format': 'csv',
+            #     'coordinate_system': 'osgb',
+            #     'quality_score': 0.95,
+            #     'source_type': 'reference',
+            #     'processor': self.process_os_open_names_data
+            # },
             'os_open_usrn': {
                 'priority': 1,
                 'description': 'OS Open USRN',
@@ -531,7 +531,7 @@ class ComprehensiveIngestionPipeline:
     
     # Add a mapping from source_name to target table
     REFERENCE_TABLE_MAP = {
-        'os_uprn': 'os_open_uprn',
+        # 'os_uprn': 'os_open_uprn',  # Handled separately with fast ingestion
         'onspd': 'onspd',
         'codepoint': 'code_point_open',
         'os_open_names': 'os_open_names',

@@ -1,6 +1,6 @@
 import sqlalchemy
 from sqlalchemy import text
-from db.db_config import get_connection_string
+from setup.database.db_config import get_connection_string
 
 def get_engine(user=None, password=None, host=None, port=None, dbname=None):
     """Get database engine. If no parameters provided, uses environment variables."""

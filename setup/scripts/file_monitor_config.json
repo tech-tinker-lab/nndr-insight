@@ -1,0 +1,74 @@
+{
+  "file_patterns": {
+    "osopenuprn_*.csv": {
+      "script": "ingest_os_uprn_fast.py",
+      "description": "OS Open UPRN Data",
+      "priority": 1,
+      "table": "os_open_uprn",
+      "source_type": "reference"
+    },
+    "codepo_*.csv": {
+      "script": "ingest_codepoint_fast.py",
+      "description": "CodePoint Open Postcodes (Fast)",
+      "priority": 2,
+      "table": "code_point_open",
+      "source_type": "reference"
+    },
+    "ONSPD_*.csv": {
+      "script": "ingest_onspd.py",
+      "description": "ONS Postcode Directory",
+      "priority": 2,
+      "table": "onspd",
+      "source_type": "reference"
+    },
+    "opname_*.csv": {
+      "script": "ingest_osopennames_fast.py",
+      "description": "OS Open Names (Fast)",
+      "priority": 2,
+      "table": "os_open_names",
+      "source_type": "reference"
+    },
+    "LAD_*.shp": {
+      "script": "ingest_lad_boundaries.py",
+      "description": "LAD Boundaries",
+      "priority": 1,
+      "table": "lad_boundaries",
+      "source_type": "reference"
+    },
+    "*.gml": {
+      "script": "ingest_os_open_map_local.py",
+      "description": "OS Open Map Local",
+      "priority": 3,
+      "table": "os_open_map_local",
+      "source_type": "reference"
+    },
+    "*.gpkg": {
+      "script": "ingest_os_open_usrn.py",
+      "description": "OS Open USRN",
+      "priority": 2,
+      "table": "os_open_usrn",
+      "source_type": "reference"
+    },
+    "*.csv": {
+      "script": "ingest_generic_csv.py",
+      "description": "Generic CSV Data",
+      "priority": 5,
+      "table": "generic_data",
+      "source_type": "unknown"
+    }
+  },
+  "directories": {
+    "incoming": "setup/data/incoming",
+    "processing": "setup/data/processing",
+    "processed": "setup/data/processed",
+    "failed": "setup/data/failed"
+  },
+  "settings": {
+    "log_file": "file_monitor.log",
+    "max_retries": 3,
+    "retry_delay": 5,
+    "file_check_interval": 1,
+    "cleanup_old_files": true,
+    "old_file_days": 30
+  }
+} 

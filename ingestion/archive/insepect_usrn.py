@@ -1,5 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import fiona
 from shapely.geometry import shape
 import geopandas as gpd
@@ -7,7 +5,7 @@ import logging
 import sys
 import os
 from dotenv import load_dotenv
-from backend.services.db_service import get_engine
+from services.db_service import get_engine
 
 # Load .env file from backend directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
