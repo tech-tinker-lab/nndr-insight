@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import uuid
 from tqdm import tqdm
 import glob
+import tempfile
 
 # Load .env file from db_setup directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'db_setup', '.env'))
@@ -77,6 +78,7 @@ def parse_arguments():
     parser.add_argument('--dbname', 
                        help='Override database name from environment')
     parser.add_argument('--max-rows', type=int, default=None, help='Maximum number of rows to ingest (for debugging)')
+    parser.add_argument('--use-temp-file', action='store_true', help='Use temporary file instead of memory buffer (for large datasets on Windows)')
     
     return parser.parse_args()
 
@@ -106,12 +108,13 @@ def get_total_lines_in_files(file_list):
             total += sum(1 for _ in f)
     return total
 
-def load_os_open_names_to_staging(input_path, batch_id, session_id, source_name, client_name, file_metadata, max_rows=None):
+def load_os_open_names_to_staging(input_path, batch_id, session_id, source_name, client_name, file_metadata, max_rows=None, use_temp_file=False):
     """Load OS Open Names data into staging table from a file or directory of CSVs (no header in source files)."""
     import csv
     from io import StringIO
     from tqdm import tqdm
     import os
+    import tempfile
 
     # Determine if input_path is a file or directory
     if os.path.isdir(input_path):
@@ -134,8 +137,13 @@ def load_os_open_names_to_staging(input_path, batch_id, session_id, source_name,
                 logger.info(f"Session ID: {session_id}")
                 logger.info(f"Source: {source_name}")
                 logger.info(f"Client: {client_name}")
-                output_buffer = StringIO()
-                writer = csv.writer(output_buffer)
+                if use_temp_file:
+                    logger.info("Using temporary file for buffer (Windows memory optimization)")
+                    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8')
+                    writer = csv.writer(temp_file)
+                else:
+                    output_buffer = StringIO()
+                    writer = csv.writer(output_buffer)
                 metadata_columns = [
                     'source_name', 'upload_user', 'upload_timestamp',
                     'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
@@ -196,18 +204,34 @@ def load_os_open_names_to_staging(input_path, batch_id, session_id, source_name,
                     if max_rows is not None and row_counter >= max_rows:
                         break
                 pbar.close()
-                output_buffer.seek(0)
+                if use_temp_file:
+                    temp_file.close()
+                    logger.info(f"Temporary file created: {temp_file.name}")
+                else:
+                    output_buffer.seek(0)
                 # Debug: print first 5 rows and column counts
                 logger.info(f"COPY will use {len(data_columns + metadata_columns)} columns: {data_columns + metadata_columns}")
                 for i, r in enumerate(first_rows):
                     logger.info(f"Row {i+1} ({len(r)} columns): {r}")
-                copy_sql = f"""
-                    COPY os_open_names_staging (
-                        {', '.join(data_columns + metadata_columns)}
-                    )
-                    FROM STDIN WITH (FORMAT CSV)
-                """
-                cur.copy_expert(sql=copy_sql, file=output_buffer)
+                if use_temp_file:
+                    copy_sql = f"""
+                        COPY os_open_names_staging (
+                            {', '.join(data_columns + metadata_columns)}
+                        )
+                        FROM '{temp_file.name}' WITH (FORMAT CSV)
+                    """
+                    cur.execute(copy_sql)
+                    # Clean up temp file
+                    os.unlink(temp_file.name)
+                    logger.info("Temporary file cleaned up")
+                else:
+                    copy_sql = f"""
+                        COPY os_open_names_staging (
+                            {', '.join(data_columns + metadata_columns)}
+                        )
+                        FROM STDIN WITH (FORMAT CSV)
+                    """
+                    cur.copy_expert(sql=copy_sql, file=output_buffer)
                 conn.commit()
                 cur.execute("""
                     SELECT COUNT(*) FROM os_open_names_staging 
@@ -329,7 +353,7 @@ def main():
         # Load data into staging table
         success, rowcount = load_os_open_names_to_staging(
             args.csv_file, batch_id, session_id, source_name, client_name, file_metadata,
-            max_rows=args.max_rows
+            max_rows=args.max_rows, use_temp_file=args.use_temp_file
         )
         
         if success:
