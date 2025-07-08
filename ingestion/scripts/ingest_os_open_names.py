@@ -12,6 +12,9 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+import uuid
+from tqdm import tqdm
+import glob
 
 # Load .env file from db_setup directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'db_setup', '.env'))
@@ -73,12 +76,13 @@ def parse_arguments():
     # Optional: Database override
     parser.add_argument('--dbname', 
                        help='Override database name from environment')
+    parser.add_argument('--max-rows', type=int, default=None, help='Maximum number of rows to ingest (for debugging)')
     
     return parser.parse_args()
 
 def generate_identifiers(args):
     """Generate batch_id and session_id if not provided"""
-    batch_id = args.batch_id or f"os_open_names_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    batch_id = args.batch_id or str(uuid.uuid4())
     session_id = args.session_id or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     return batch_id, session_id
@@ -95,92 +99,131 @@ def get_file_metadata(file_path):
         'file_path': file_path
     }
 
-def load_os_open_names_to_staging(csv_path, batch_id, session_id, source_name, client_name, file_metadata):
-    """Load OS Open Names data into staging table"""
-    if not os.path.isfile(csv_path):
-        logger.error(f"CSV file not found: {csv_path}")
-        return False, 0
+def get_total_lines_in_files(file_list):
+    total = 0
+    for file in file_list:
+        with open(file, 'r', encoding='utf-8') as f:
+            total += sum(1 for _ in f)
+    return total
+
+def load_os_open_names_to_staging(input_path, batch_id, session_id, source_name, client_name, file_metadata, max_rows=None):
+    """Load OS Open Names data into staging table from a file or directory of CSVs (no header in source files)."""
+    import csv
+    from io import StringIO
+    from tqdm import tqdm
+    import os
+
+    # Determine if input_path is a file or directory
+    if os.path.isdir(input_path):
+        csv_files = sorted(glob.glob(os.path.join(input_path, '*.csv')))
+        if not csv_files:
+            logger.error(f"No CSV files found in directory: {input_path}")
+            return False, 0
+        logger.info(f"Found {len(csv_files)} CSV files in directory: {input_path}")
+        total_lines = get_total_lines_in_files(csv_files)
+    else:
+        csv_files = [input_path]
+        total_lines = get_total_lines_in_files(csv_files)
 
     start_time = datetime.now()
-    
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                logger.info(f"Starting OS Open Names staging ingestion: {csv_path}")
+                logger.info(f"Starting OS Open Names staging ingestion: {input_path}")
                 logger.info(f"Batch ID: {batch_id}")
                 logger.info(f"Session ID: {session_id}")
                 logger.info(f"Source: {source_name}")
                 logger.info(f"Client: {client_name}")
-                
-                # Use COPY for fast bulk insertion
-                from io import StringIO
-                import csv
-                
                 output_buffer = StringIO()
                 writer = csv.writer(output_buffer)
-                
-                # Add metadata columns
                 metadata_columns = [
-                    'raw_line', 'source_name', 'upload_user', 'upload_timestamp',
-                    'batch_id', 'raw_filename', 'file_path', 'file_size', 
-                    'file_modified', 'session_id', 'client_name'
+                    'source_name', 'upload_user', 'upload_timestamp',
+                    'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
                 ]
-                
-                # Write header
-                writer.writerow(OS_OPEN_NAMES_COLUMNS + metadata_columns)
-                
-                # Process each data row and add metadata
-                with open(csv_path, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        # Ensure row has enough columns
-                        while len(row) < len(OS_OPEN_NAMES_COLUMNS):
-                            row.append('')
-                        
-                        # Add metadata columns
-                        metadata_row = row + [
-                            ','.join(row),  # raw_line (all columns as CSV)
-                            source_name,  # source_name
-                            USER,  # upload_user
-                            datetime.now().isoformat(),  # upload_timestamp
-                            batch_id,  # batch_id
-                            file_metadata['file_name'],  # raw_filename
-                            file_metadata['file_path'],  # file_path
-                            str(file_metadata['file_size']),  # file_size
-                            file_metadata['file_modified'].isoformat(),  # file_modified
-                            session_id,  # session_id
-                            client_name  # client_name
-                        ]
-                        writer.writerow(metadata_row)
-                
-                # Reset buffer and copy to staging table
+                data_columns = [
+                    'id_text', 'names_uri', 'name1', 'name1_lang', 'name2', 'name2_lang', 'type', 'local_type',
+                    'geometry_x', 'geometry_y', 'most_detail_view_res', 'least_detail_view_res',
+                    'mbr_xmin', 'mbr_ymin', 'mbr_xmax', 'mbr_ymax', 'postcode_district', 'postcode_district_uri',
+                    'populated_place', 'populated_place_uri', 'populated_place_type', 'district_borough',
+                    'district_borough_uri', 'district_borough_type', 'county_unitary', 'county_unitary_uri',
+                    'county_unitary_type', 'region', 'region_uri', 'country', 'country_uri',
+                    'related_spatial_object', 'same_as_dbpedia', 'same_as_geonames', 'geom'
+                ]
+                # Do NOT write a header row
+                pbar = tqdm(total=total_lines, desc="Ingesting rows")
+                first_rows = []
+                row_counter = 0
+                for file_idx, csv_file in enumerate(csv_files):
+                    this_file_metadata = get_file_metadata(csv_file)
+                    if not this_file_metadata:
+                        logger.warning(f"Skipping file with missing metadata: {csv_file}")
+                        continue
+                    # Use utf-8-sig to strip BOM if present
+                    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            # Skip blank lines
+                            if not row or all(cell.strip() == '' for cell in row):
+                                continue
+                            # Truncate or warn on too many columns
+                            if len(row) > len(data_columns):
+                                logger.warning(f"Row has too many columns ({len(row)}): {row}")
+                                row = row[:len(data_columns)]
+                            # Pad short rows
+                            while len(row) < len(data_columns):
+                                row.append('')
+                            # Now row is exactly 35 columns
+                            metadata_row = [
+                                source_name,
+                                USER,
+                                datetime.now().isoformat(),
+                                batch_id,
+                                os.path.basename(csv_file),
+                                str(this_file_metadata['file_size']),
+                                this_file_metadata['file_modified'].isoformat(),
+                                session_id,
+                                client_name
+                            ]
+                            full_row = row + metadata_row
+                            writer.writerow(full_row)
+                            if len(first_rows) < 5:
+                                first_rows.append(full_row)
+                            pbar.update(1)
+                            row_counter += 1
+                            if max_rows is not None and row_counter >= max_rows:
+                                logger.info(f"Reached max_rows={max_rows}, stopping early for debug.")
+                                break
+                    if max_rows is not None and row_counter >= max_rows:
+                        break
+                pbar.close()
                 output_buffer.seek(0)
+                # Debug: print first 5 rows and column counts
+                logger.info(f"COPY will use {len(data_columns + metadata_columns)} columns: {data_columns + metadata_columns}")
+                for i, r in enumerate(first_rows):
+                    logger.info(f"Row {i+1} ({len(r)} columns): {r}")
                 copy_sql = f"""
                     COPY os_open_names_staging (
-                        {', '.join(OS_OPEN_NAMES_COLUMNS + metadata_columns)}
+                        {', '.join(data_columns + metadata_columns)}
                     )
-                    FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
+                    FROM STDIN WITH (FORMAT CSV)
                 """
                 cur.copy_expert(sql=copy_sql, file=output_buffer)
                 conn.commit()
-
-                # Get record count for this batch
                 cur.execute("""
                     SELECT COUNT(*) FROM os_open_names_staging 
                     WHERE batch_id = %s AND session_id = %s
                 """, (batch_id, session_id))
                 rowcount_result = cur.fetchone()
                 rowcount = rowcount_result[0] if rowcount_result else 0
-                
                 end_time = datetime.now()
                 duration = (end_time - start_time).total_seconds()
                 rate = rowcount / duration if duration > 0 else 0
-                
                 logger.info(f"✅ Successfully loaded {rowcount:,} rows in {duration:.1f}s")
                 logger.info(f"📊 Rate: {rate:,.0f} rows/second")
-                
                 return True, rowcount
-                
+    except ImportError:
+        logger.error("tqdm is not installed. Please install it with 'pip install tqdm' for progress bar support.")
+        return False, 0
     except Exception as e:
         logger.error(f"❌ Error during staging ingestion: {e}")
         return False, 0
@@ -212,18 +255,12 @@ def verify_staging_data(batch_id=None, session_id=None):
                 null_name_result = cur.fetchone()
                 null_name_count = null_name_result[0] if null_name_result else 0
                 
-                # Check for empty rows
-                cur.execute(f"SELECT COUNT(*) FROM os_open_names_staging {where_clause} AND (raw_line IS NULL OR raw_line = '');", params)
-                empty_result = cur.fetchone()
-                empty_count = empty_result[0] if empty_result else 0
-                
                 logger.info("=" * 60)
                 logger.info("OS OPEN NAMES STAGING DATA QUALITY REPORT")
                 logger.info("=" * 60)
                 logger.info(f"Total records: {total_count:,}")
                 logger.info(f"Null names: {null_name_count}")
-                logger.info(f"Empty rows: {empty_count}")
-                logger.info(f"Valid rows: {total_count - empty_count:,}")
+                logger.info(f"Valid rows: {total_count - null_name_count:,}")
                 if batch_id:
                     logger.info(f"Batch ID: {batch_id}")
                 if session_id:
@@ -253,27 +290,46 @@ def main():
     source_name = args.source or "OS_Open_Names_DEFAULT"
     client_name = args.client or "default_client"
     
-    # Get file metadata
-    file_metadata = get_file_metadata(args.csv_file)
+    # Get file metadata (for directory, use first file's metadata)
+    if os.path.isdir(args.csv_file):
+        # Find all CSV files in the directory
+        csv_files = sorted(glob.glob(os.path.join(args.csv_file, '*.csv')))
+        if not csv_files:
+            logger.error(f"No CSV files found in directory: {args.csv_file}")
+            sys.exit(1)
+        file_metadata = get_file_metadata(csv_files[0])
+    else:
+        file_metadata = get_file_metadata(args.csv_file)
     if not file_metadata:
         logger.error(f"Could not read file metadata for: {args.csv_file}")
         sys.exit(1)
     
+    # Print DB connection and audit details
+    logger.info("Database connection details:")
+    logger.info(f"  Host: {HOST}")
+    logger.info(f"  Port: {PORT}")
+    logger.info(f"  DB Name: {DBNAME}")
+    logger.info(f"  User: {USER}")
+    logger.info(f"  Password: {'***' if PASSWORD else '(not set)'}")
+    logger.info(f"CSV file: {args.csv_file}")
+    logger.info(f"Client: {client_name}")
+    logger.info(f"Source: {source_name}")
+    logger.info(f"Batch ID: {batch_id}")
+    logger.info(f"Session ID: {session_id}")
+    logger.info(f"File path: {file_metadata['file_path']}")
+    logger.info(f"File size: {file_metadata['file_size']}")
+    logger.info(f"File modified: {file_metadata['file_modified']}")
     logger.info("=" * 60)
     logger.info("OS OPEN NAMES STAGING-ONLY INGESTION")
     logger.info("=" * 60)
-    logger.info(f"CSV file: {args.csv_file}")
     logger.info(f"Staging table: os_open_names_staging")
-    logger.info(f"Source: {source_name}")
-    logger.info(f"Client: {client_name}")
-    logger.info(f"Session ID: {session_id}")
-    logger.info(f"Batch ID: {batch_id}")
     logger.info("=" * 60)
     
     try:
         # Load data into staging table
         success, rowcount = load_os_open_names_to_staging(
-            args.csv_file, batch_id, session_id, source_name, client_name, file_metadata
+            args.csv_file, batch_id, session_id, source_name, client_name, file_metadata,
+            max_rows=args.max_rows
         )
         
         if success:

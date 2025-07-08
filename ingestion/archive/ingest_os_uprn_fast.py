@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-Fast OS UPRN Data Ingestion Script
-Drops and recreates os_open_uprn table with only necessary columns
-Uses COPY for fast bulk insertion without duplicate checking
+Fast OS UPRN Data Ingestion Script (Staging Only, Concurrency-Safe)
+Loads data into os_open_uprn_staging with batch/client/session tagging and audit columns.
+No DROP/TRUNCATE/CREATE on final tables. No upsert. Follows standardized ingestion pattern.
 """
 
 import psycopg2
 import os
 import sys
 import logging
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load .env file from backend directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'backend', '.env'))
 
-# Database configuration
 USER = os.getenv("PGUSER")
 PASSWORD = os.getenv("PGPASSWORD")
 HOST = os.getenv("PGHOST")
 PORT = os.getenv("PGPORT")
 DBNAME = os.getenv("PGDATABASE")
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -30,7 +30,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def get_connection():
-    """Get database connection"""
     return psycopg2.connect(
         dbname=DBNAME,
         user=USER,
@@ -39,44 +38,17 @@ def get_connection():
         port=PORT
     )
 
-def drop_and_recreate_uprn_table():
-    """Drop and recreate os_open_uprn table with only necessary columns"""
-    logger.info("Dropping and recreating os_open_uprn table...")
-    
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                # Drop the table if it exists
-                cur.execute("DROP TABLE IF EXISTS os_open_uprn CASCADE;")
-                logger.info("Dropped existing os_open_uprn table")
-                
-                # Create new table with only OS UPRN data columns
-                create_table_sql = """
-                CREATE TABLE os_open_uprn (
-                    uprn BIGINT PRIMARY KEY,
-                    x_coordinate NUMERIC(10,3),
-                    y_coordinate NUMERIC(10,3),
-                    latitude NUMERIC(10,8),
-                    longitude NUMERIC(11,8)
-                );
-                """
-                cur.execute(create_table_sql)
-                logger.info("Created new os_open_uprn table with simplified schema")
-                
-                # Create indexes for performance
-                cur.execute("CREATE INDEX idx_os_open_uprn_coords ON os_open_uprn(x_coordinate, y_coordinate);")
-                cur.execute("CREATE INDEX idx_os_open_uprn_latlong ON os_open_uprn(latitude, longitude);")
-                logger.info("Created indexes for performance")
-                
-                conn.commit()
-                logger.info("Table recreation completed successfully")
-                
-    except Exception as e:
-        logger.error(f"Error recreating table: {e}")
-        raise
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fast, concurrency-safe OS UPRN ingestion (staging only)")
+    parser.add_argument('--csv', type=str, required=False, default="backend/data/osopenuprn_202506_csv/osopenuprn_202506.csv", help='Path to input CSV')
+    parser.add_argument('--client', type=str, required=True, help='Client name or ID')
+    parser.add_argument('--batch-id', type=str, required=True, help='Batch ID for this ingestion')
+    parser.add_argument('--session-id', type=str, required=False, default=None, help='Session ID (optional)')
+    parser.add_argument('--source', type=str, required=False, default=None, help='Source system (optional)')
+    parser.add_argument('--source-file', type=str, required=False, default=None, help='Source file name (optional)')
+    return parser.parse_args()
 
-def load_uprn_data(csv_path):
-    """Load UPRN data using fast COPY operation"""
+def load_uprn_data_staging(csv_path, client, batch_id, session_id, source, source_file):
     if not os.path.isfile(csv_path):
         logger.error(f"CSV file not found: {csv_path}")
         return False
@@ -84,118 +56,117 @@ def load_uprn_data(csv_path):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                logger.info(f"Starting bulk load from {csv_path} into os_open_uprn...")
-                
-                # Preview first few lines to verify format
+                logger.info(f"Bulk loading {csv_path} into os_open_uprn_staging with batch/client tagging...")
+
+                # Preview first few lines
                 with open(csv_path, 'r', encoding='utf-8') as f:
                     header = f.readline().strip()
                     first_data = f.readline().strip()
                     logger.info(f'Header: {header}')
                     logger.info(f'First data row: {first_data}')
-                
-                # Use COPY for fast bulk insertion
+
+                # Prepare COPY with extra columns for audit
                 with open(csv_path, 'r', encoding='utf-8') as f:
-                    copy_sql = """
-                        COPY os_open_uprn (uprn, x_coordinate, y_coordinate, latitude, longitude)
+                    copy_sql = f"""
+                        COPY os_open_uprn_staging (uprn, x_coordinate, y_coordinate, latitude, longitude, batch_id, client_name, session_id, source, source_file, loaded_at)
                         FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
                     """
-                    cur.copy_expert(sql=copy_sql, file=f)
+                    # We'll use a temp file with extra columns injected
+                    import csv, tempfile
+                    temp = tempfile.NamedTemporaryFile('w+', newline='', delete=False)
+                    writer = csv.writer(temp)
+                    reader = csv.reader(f)
+                    header_row = next(reader)
+                    # Write new header
+                    writer.writerow(header_row + ['batch_id', 'client_name', 'session_id', 'source', 'source_file', 'loaded_at'])
+                    for row in reader:
+                        writer.writerow(row + [batch_id, client, session_id or '', source or '', source_file or os.path.basename(csv_path), datetime.utcnow().isoformat()])
+                    temp.flush()
+                    temp.seek(0)
+                    with open(temp.name, 'r', encoding='utf-8') as tf:
+                        cur.copy_expert(sql=copy_sql, file=tf)
+                    os.unlink(temp.name)
                     conn.commit()
 
                 # Get record count
-                cur.execute("SELECT COUNT(*) FROM os_open_uprn;")
-                rowcount = cur.fetchone()[0]
-                logger.info(f"Successfully loaded {rowcount} records into os_open_uprn")
-                
+                cur.execute("SELECT COUNT(*) FROM os_open_uprn_staging WHERE batch_id = %s AND client_name = %s;", (batch_id, client))
+                row = cur.fetchone()
+                rowcount = row[0] if row else 0
+                logger.info(f"Successfully loaded {rowcount} records into os_open_uprn_staging for batch {batch_id}, client {client}")
                 return True
-
     except Exception as e:
         logger.error(f"Error during data load: {e}")
         return False
 
-def verify_data_quality():
-    """Verify the loaded data quality"""
-    logger.info("Verifying data quality...")
-    
+def verify_data_quality(batch_id, client):
+    logger.info("Verifying data quality for this batch...")
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Check total count
-                cur.execute("SELECT COUNT(*) FROM os_open_uprn;")
-                total_count = cur.fetchone()[0]
-                
-                # Check for null UPRNs
-                cur.execute("SELECT COUNT(*) FROM os_open_uprn WHERE uprn IS NULL;")
-                null_uprn_count = cur.fetchone()[0]
-                
-                # Check for duplicate UPRNs (should be 0 due to PRIMARY KEY)
+                cur.execute("SELECT COUNT(*) FROM os_open_uprn_staging WHERE batch_id = %s AND client_name = %s;", (batch_id, client))
+                row = cur.fetchone()
+                total_count = row[0] if row else 0
+
+                cur.execute("SELECT COUNT(*) FROM os_open_uprn_staging WHERE batch_id = %s AND client_name = %s AND uprn IS NULL;", (batch_id, client))
+                row = cur.fetchone()
+                null_uprn_count = row[0] if row else 0
+
                 cur.execute("""
                     SELECT COUNT(*) FROM (
-                        SELECT uprn, COUNT(*) 
-                        FROM os_open_uprn 
-                        GROUP BY uprn 
-                        HAVING COUNT(*) > 1
+                        SELECT uprn, COUNT(*) FROM os_open_uprn_staging WHERE batch_id = %s AND client_name = %s GROUP BY uprn HAVING COUNT(*) > 1
                     ) as duplicates;
-                """)
-                duplicate_count = cur.fetchone()[0]
-                
-                # Check coordinate ranges
+                """, (batch_id, client))
+                row = cur.fetchone()
+                duplicate_count = row[0] if row else 0
+
                 cur.execute("""
                     SELECT 
-                        MIN(x_coordinate) as min_x, MAX(x_coordinate) as max_x,
-                        MIN(y_coordinate) as min_y, MAX(y_coordinate) as max_y,
-                        MIN(latitude) as min_lat, MAX(latitude) as max_lat,
-                        MIN(longitude) as min_lon, MAX(longitude) as max_lon
-                    FROM os_open_uprn;
-                """)
+                        MIN(x_coordinate), MAX(x_coordinate),
+                        MIN(y_coordinate), MAX(y_coordinate),
+                        MIN(latitude), MAX(latitude),
+                        MIN(longitude), MAX(longitude)
+                    FROM os_open_uprn_staging WHERE batch_id = %s AND client_name = %s;
+                """, (batch_id, client))
                 coord_ranges = cur.fetchone()
-                
+
                 logger.info("=" * 60)
-                logger.info("DATA QUALITY REPORT")
+                logger.info("DATA QUALITY REPORT (staging, this batch)")
                 logger.info("=" * 60)
                 logger.info(f"Total records: {total_count:,}")
                 logger.info(f"Null UPRNs: {null_uprn_count}")
                 logger.info(f"Duplicate UPRNs: {duplicate_count}")
-                logger.info(f"X coordinate range: {coord_ranges[0]:.3f} to {coord_ranges[1]:.3f}")
-                logger.info(f"Y coordinate range: {coord_ranges[2]:.3f} to {coord_ranges[3]:.3f}")
-                logger.info(f"Latitude range: {coord_ranges[4]:.8f} to {coord_ranges[5]:.8f}")
-                logger.info(f"Longitude range: {coord_ranges[6]:.8f} to {coord_ranges[7]:.8f}")
+                if coord_ranges and all(x is not None for x in coord_ranges):
+                    logger.info(f"X coordinate range: {coord_ranges[0]:.3f} to {coord_ranges[1]:.3f}")
+                    logger.info(f"Y coordinate range: {coord_ranges[2]:.3f} to {coord_ranges[3]:.3f}")
+                    logger.info(f"Latitude range: {coord_ranges[4]:.8f} to {coord_ranges[5]:.8f}")
+                    logger.info(f"Longitude range: {coord_ranges[6]:.8f} to {coord_ranges[7]:.8f}")
+                else:
+                    logger.info("Coordinate ranges: N/A (no data)")
                 logger.info("=" * 60)
-                
                 return True
-                
     except Exception as e:
         logger.error(f"Error during data quality verification: {e}")
         return False
 
 def main():
-    """Main execution function"""
-    # Default CSV path
-    default_path = "backend/data/osopenuprn_202506_csv/osopenuprn_202506.csv"
-    csv_file = sys.argv[1] if len(sys.argv) > 1 else default_path
-    
-    if len(sys.argv) < 2:
-        logger.info(f"No CSV file path provided; using default: {default_path}")
-    
+    args = parse_args()
     logger.info("=" * 60)
-    logger.info("FAST OS UPRN DATA INGESTION")
+    logger.info("FAST OS UPRN DATA INGESTION (STAGING ONLY)")
     logger.info("=" * 60)
-    logger.info(f"CSV file: {csv_file}")
+    logger.info(f"CSV file: {args.csv}")
+    logger.info(f"Client: {args.client}")
+    logger.info(f"Batch ID: {args.batch_id}")
+    logger.info(f"Session ID: {args.session_id}")
+    logger.info(f"Source: {args.source}")
+    logger.info(f"Source file: {args.source_file}")
     logger.info("=" * 60)
-    
     try:
-        # Step 1: Drop and recreate table
-        drop_and_recreate_uprn_table()
-        
-        # Step 2: Load data using fast COPY
-        if load_uprn_data(csv_file):
-            # Step 3: Verify data quality
-            verify_data_quality()
-            logger.info("✅ OS UPRN data ingestion completed successfully!")
+        if load_uprn_data_staging(args.csv, args.client, args.batch_id, args.session_id, args.source, args.source_file):
+            verify_data_quality(args.batch_id, args.client)
+            logger.info("✅ OS UPRN data ingestion (staging) completed successfully!")
         else:
             logger.error("❌ Data loading failed!")
             sys.exit(1)
-            
     except Exception as e:
         logger.error(f"❌ Ingestion failed: {e}")
         sys.exit(1)

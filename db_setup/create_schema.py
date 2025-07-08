@@ -4,6 +4,7 @@ import argparse
 import sqlalchemy
 from sqlalchemy import text
 from dotenv import load_dotenv
+import time
 
 """
 create_schema.py: Unified Database Schema Creation Script (SQL File Runner)
@@ -12,11 +13,13 @@ Changelog:
 - v1.0: Initial version, executes hardcoded SQL_FILES list.
 - v1.1: Enhanced to accept a text file (--file) listing .sql files to execute, one per line. If not provided, uses default SQL_FILES list. (2024-06-10)
 - v1.1: Updated to include all staging and master tables for reference, postcode, address, and street datasets. (2024-06-10)
+- v1.2: Added --recreate-db option to drop and recreate the target database before table creation. (2024-07-09)
+- v1.3: Removed per-table drop logic and --drop option. Only --recreate-db is supported for full DB reset. (2024-07-09)
 
 Usage:
-    python create_schema.py [--drop] [--file schema_files.txt]
+    python create_schema.py [--recreate-db] [--file schema_files.txt]
 
-- If --drop is provided, all relevant tables are dropped before creation (fresh start).
+- If --recreate-db is provided, the target database is dropped and recreated before any table creation.
 - If --file is provided, reads the list of .sql files to execute from the file (one per line).
 - If not, tables are only created if they do not exist (idempotent).
 - Each .sql file in db_setup/schemas/ should handle only one table.
@@ -32,12 +35,11 @@ HOST = os.getenv("PGHOST")
 PORT = os.getenv("PGPORT")
 DBNAME = os.getenv("PGDATABASE")
 
-engine = sqlalchemy.create_engine(f"postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}")
-
 SCHEMA_DIR = os.path.join(os.path.dirname(__file__), 'schemas')
 
 # List the .sql files in the exact order you want them executed
 SQL_FILES = [
+    '00_enable_postgis.sql',
     # Reference tables (staging and master)
     'reference/os_open_uprn_staging.sql',
     'reference/os_open_uprn.sql',
@@ -70,27 +72,37 @@ def get_sql_files_from_txt(file_path):
                 files.append(line)
     return files
 
-def main(drop_tables=False):
+def recreate_database():
+    print(f"Connecting to maintenance database to drop and recreate '{DBNAME}'...")
+    maintenance_engine = sqlalchemy.create_engine(f"postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/postgres")
+    with maintenance_engine.connect() as conn:
+        conn.execution_options(isolation_level="AUTOCOMMIT")
+        # Terminate all connections to the target DB
+        print(f"Terminating all connections to '{DBNAME}'...")
+        conn.execute(text(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{DBNAME}' AND pid <> pg_backend_pid();"))
+        # Drop and recreate
+        print(f"Dropping database '{DBNAME}' if it exists...")
+        conn.execute(text(f"DROP DATABASE IF EXISTS {DBNAME};"))
+        print(f"Creating database '{DBNAME}'...")
+        conn.execute(text(f"CREATE DATABASE {DBNAME};"))
+    print(f"Database '{DBNAME}' dropped and recreated successfully.")
+    # Wait a moment to ensure DB is ready
+    time.sleep(2)
+
+def main(recreate_db=False, sql_files=None):
+    if recreate_db:
+        recreate_database()
+    if sql_files is None:
+        sql_files = SQL_FILES
     # Check that all files exist
-    missing = [f for f in SQL_FILES if not os.path.exists(os.path.join(SCHEMA_DIR, f))]
+    missing = [f for f in sql_files if not os.path.exists(os.path.join(SCHEMA_DIR, f))]
     if missing:
         print(f"Missing .sql files: {missing}")
         return
-
+    engine = sqlalchemy.create_engine(f"postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}")
     with engine.begin() as conn:
-        if drop_tables:
-            print("Dropping all tables defined in SQL_FILES list...")
-            for sql_file in SQL_FILES:
-                table_name = os.path.splitext(sql_file)[0]
-                try:
-                    conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE;"))
-                    print(f"Dropped table {table_name}.")
-                except Exception as e:
-                    print(f"[ERROR] Could not drop table {table_name}: {e}")
-            print("All relevant tables dropped.")
-
         print("Creating tables from SQL_FILES list...")
-        for sql_file in SQL_FILES:
+        for sql_file in sql_files:
             sql_path = os.path.join(SCHEMA_DIR, sql_file)
             print(f"\n=== Executing {sql_file} ===")
             try:
@@ -104,7 +116,7 @@ def main(drop_tables=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified Database Schema Creation Script (SQL File Runner)")
-    parser.add_argument('--drop', action='store_true', help='Drop all relevant tables before creation')
+    parser.add_argument('--recreate-db', action='store_true', help='Drop and recreate the target database before table creation')
     parser.add_argument('--file', type=str, help='Text file listing .sql files to execute (one per line)')
     args = parser.parse_args()
 
@@ -112,37 +124,5 @@ if __name__ == "__main__":
         sql_files = get_sql_files_from_txt(args.file)
     else:
         sql_files = SQL_FILES
-    
-    def main_with_files(drop_tables, sql_files):
-        # Check that all files exist
-        missing = [f for f in sql_files if not os.path.exists(os.path.join(SCHEMA_DIR, f))]
-        if missing:
-            print(f"Missing .sql files: {missing}")
-            return
 
-        with engine.begin() as conn:
-            if drop_tables:
-                print("Dropping all tables defined in SQL_FILES list...")
-                for sql_file in sql_files:
-                    table_name = os.path.splitext(sql_file)[0]
-                    try:
-                        conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE;"))
-                        print(f"Dropped table {table_name}.")
-                    except Exception as e:
-                        print(f"[ERROR] Could not drop table {table_name}: {e}")
-                print("All relevant tables dropped.")
-
-            print("Creating tables from SQL_FILES list...")
-            for sql_file in sql_files:
-                sql_path = os.path.join(SCHEMA_DIR, sql_file)
-                print(f"\n=== Executing {sql_file} ===")
-                try:
-                    with open(sql_path, 'r', encoding='utf-8') as f:
-                        sql = f.read()
-                    conn.execute(text(sql))
-                    print(f"Executed {sql_file} successfully.")
-                except Exception as e:
-                    print(f"[ERROR] Failed to execute {sql_file}: {e}")
-            print("\nAll schema .sql files executed.")
-
-    main_with_files(args.drop, sql_files) 
+    main(recreate_db=args.recreate_db, sql_files=sql_files) 

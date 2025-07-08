@@ -13,6 +13,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+import uuid
 
 # Load .env file from db_setup directory
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'db_setup', '.env'))
@@ -76,22 +77,23 @@ def ensure_staging_table_exists():
         logger.error(f"Error ensuring staging table exists: {e}")
         raise
 
-def load_uprn_data_to_staging(csv_path, session_id=None, source_name=None, client_name=None):
-    """Load UPRN data into staging table using fast COPY operation with batch tracking"""
+def load_uprn_data_to_staging(csv_path, session_id=None, source_name=None, client_name=None, batch_id=None):
+    """Ultra-fast load of UPRN data into staging table using COPY directly from file, with audit fields and progress bar."""
     if not os.path.isfile(csv_path):
         logger.error(f"CSV file not found: {csv_path}")
         return False
 
-    # Generate unique batch ID
-    batch_id = f"uprn_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    # Generate unique batch ID as UUID if not provided
+    batch_id = batch_id or str(uuid.uuid4())
     session_id = session_id or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     source_name = source_name or "OS_Open_UPRN"
     client_name = client_name or "default_client"
-    
+
     # Get source file information
     file_size = os.path.getsize(csv_path)
     file_modified = datetime.fromtimestamp(os.path.getmtime(csv_path))
-    
+    source_file = os.path.basename(csv_path)
+
     logger.info(f"Batch ID: {batch_id}")
     logger.info(f"Session ID: {session_id}")
     logger.info(f"Source: {source_name}")
@@ -103,67 +105,60 @@ def load_uprn_data_to_staging(csv_path, session_id=None, source_name=None, clien
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                logger.info(f"Starting bulk load from {csv_path} into os_open_uprn_staging...")
-                
-                # Preview first few lines to verify format
-                with open(csv_path, 'r', encoding='utf-8') as f:
-                    header = f.readline().strip()
-                    first_data = f.readline().strip()
-                    logger.info(f'Header: {header}')
-                    logger.info(f'First data row: {first_data}')
-                
-                # Use COPY for fast bulk insertion with metadata
-                with open(csv_path, 'r', encoding='utf-8') as f:
-                    # Skip header for the data processing
-                    f.seek(0)
-                    header_line = f.readline()
-                    
-                    # Process data and add metadata columns
-                    from io import StringIO
-                    import csv
-                    
-                    # Create a new CSV with metadata columns
-                    output_buffer = StringIO()
-                    writer = csv.writer(output_buffer)
-                    
-                    # Write header with metadata columns
-                    writer.writerow([
-                        'uprn', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude',
-                        'raw_line', 'source_name', 'upload_user', 'upload_timestamp', 
-                        'batch_id', 'raw_filename', 'file_path', 'file_size', 'file_modified', 'session_id', 'client_name'
-                    ])
-                    
-                    # Process each data row and add metadata
-                    reader = csv.reader(f)
-                    for row in reader:
-                        # Add metadata columns
-                        metadata_row = row + [
-                            row[0] if row else '',  # raw_line (use first column as raw data)
-                            source_name,  # source_name
-                            USER,  # upload_user
-                            datetime.now().isoformat(),  # upload_timestamp
-                            batch_id,  # batch_id
-                            os.path.basename(csv_path),  # raw_filename
-                            csv_path,  # file_path
-                            str(file_size),  # file_size
-                            file_modified.isoformat(),  # file_modified
-                            session_id,  # session_id
-                            client_name  # client_name
-                        ]
-                        writer.writerow(metadata_row)
-                    
-                    # Reset buffer and copy to staging table
-                    output_buffer.seek(0)
-                    copy_sql = """
-                        COPY os_open_uprn_staging (
-                            uprn, x_coordinate, y_coordinate, latitude, longitude,
-                            raw_line, source_name, upload_user, upload_timestamp,
-                            batch_id, raw_filename, file_path, file_size, file_modified, session_id, client_name
-                        )
-                        FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
-                    """
-                    cur.copy_expert(sql=copy_sql, file=output_buffer)
-                    conn.commit()
+                logger.info(f"Starting ultra-fast bulk load from {csv_path} into os_open_uprn_staging...")
+
+                import csv
+                from io import StringIO
+                from tqdm import tqdm
+
+                # Count total lines for progress bar
+                with open(csv_path, 'r', encoding='utf-8') as f_count:
+                    total_lines = sum(1 for _ in f_count) - 1  # exclude header
+
+                def row_generator():
+                    with open(csv_path, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        header = next(reader)
+                        for row in tqdm(reader, total=total_lines, desc="Processing rows"):
+                            yield [
+                                row[0] if len(row) > 0 else '',  # uprn
+                                row[1] if len(row) > 1 else '',  # x_coordinate
+                                row[2] if len(row) > 2 else '',  # y_coordinate
+                                row[3] if len(row) > 3 else '',  # latitude
+                                row[4] if len(row) > 4 else '',  # longitude
+                                source_name,                     # source_name
+                                USER,                            # upload_user
+                                datetime.now().isoformat(),      # upload_timestamp
+                                batch_id,                        # batch_id
+                                source_file,                     # source_file
+                                str(file_size),                  # file_size
+                                file_modified.isoformat(),       # file_modified
+                                session_id,                      # session_id
+                                client_name                      # client_name
+                            ]
+
+                # Write to a StringIO buffer in CSV format for COPY
+                output_buffer = StringIO()
+                writer = csv.writer(output_buffer)
+                writer.writerow([
+                    'uprn', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude',
+                    'source_name', 'upload_user', 'upload_timestamp',
+                    'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
+                ])
+                for row in row_generator():
+                    writer.writerow(row)
+                output_buffer.seek(0)
+
+                copy_sql = """
+                    COPY os_open_uprn_staging (
+                        uprn, x_coordinate, y_coordinate, latitude, longitude,
+                        source_name, upload_user, upload_timestamp,
+                        batch_id, source_file, file_size, file_modified, session_id, client_name
+                    )
+                    FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
+                """
+                cur.copy_expert(sql=copy_sql, file=output_buffer)
+                conn.commit()
 
                 # Get record count for this batch
                 cur.execute("""
@@ -172,10 +167,10 @@ def load_uprn_data_to_staging(csv_path, session_id=None, source_name=None, clien
                 """, (batch_id, session_id))
                 rowcount_result = cur.fetchone()
                 rowcount = rowcount_result[0] if rowcount_result else 0
-                
+
                 logger.info(f"Successfully loaded {rowcount} records into os_open_uprn_staging")
                 logger.info(f"Batch ID: {batch_id}")
-                
+
                 return True, batch_id
 
     except Exception as e:
@@ -264,7 +259,7 @@ def main():
         DBNAME = args.dbname
     
     # Generate identifiers
-    batch_id = args.batch_id or f"uprn_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    batch_id = args.batch_id or str(uuid.uuid4())
     session_id = args.session_id or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     # Get source and client names
@@ -282,6 +277,14 @@ def main():
     logger.info(f"Batch ID: {batch_id}")
     logger.info("=" * 60)
     
+    # Print DB connection details (mask password)
+    logger.info("Database connection details:")
+    logger.info(f"  Host: {HOST}")
+    logger.info(f"  Port: {PORT}")
+    logger.info(f"  DB Name: {DBNAME}")
+    logger.info(f"  User: {USER}")
+    logger.info(f"  Password: {'***' if PASSWORD else '(not set)'}")
+
     try:
         # Step 1: Ensure staging table exists
         ensure_staging_table_exists()
@@ -291,7 +294,8 @@ def main():
             args.source_file, 
             session_id,
             source_name,
-            client_name
+            client_name,
+            batch_id
         )
         
         if isinstance(result, tuple) and len(result) == 2:
