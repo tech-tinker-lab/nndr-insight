@@ -9,14 +9,18 @@ import os
 import sys
 import glob
 import time
+import tempfile
 import psycopg2
 import argparse
 import logging
+import uuid
+import csv
 from datetime import datetime
 from dotenv import load_dotenv
+from tqdm import tqdm
 
-# Load .env file from db_setup directory
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'db_setup', '.env'))
+# Load .env file from root directory
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 # Database configuration
 USER = os.getenv("PGUSER")
@@ -44,129 +48,117 @@ def get_connection():
         port=PORT
     )
 
-def ensure_staging_table_exists():
-    """Ensure the staging table exists with proper schema"""
-    logger.info("Ensuring code_point_open_staging table exists...")
+def check_staging_table_exists():
+    """Check if the staging table exists"""
+    logger.info("Checking if code_point_open_staging table exists...")
     
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Create staging table if it doesn't exist
-                create_staging_sql = """
-                CREATE TABLE IF NOT EXISTS code_point_open_staging (
-                    postcode TEXT,
-                    positional_quality_indicator TEXT,
-                    easting TEXT,
-                    northing TEXT,
-                    country_code TEXT,
-                    nhs_regional_ha_code TEXT,
-                    nhs_ha_code TEXT,
-                    admin_county_code TEXT,
-                    admin_district_code TEXT,
-                    admin_ward_code TEXT,
-                    raw_line TEXT,
-                    source_name TEXT,
-                    upload_user TEXT,
-                    upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    batch_id TEXT,
-                    raw_filename TEXT,
-                    file_path TEXT,
-                    file_size TEXT,
-                    file_modified TIMESTAMP,
-                    session_id TEXT
-                );
-                """
-                cur.execute(create_staging_sql)
-                conn.commit()
-                logger.info("Staging table verified/created successfully")
-                
-    except Exception as e:
-        logger.error(f"Error ensuring staging table exists: {e}")
-        raise
-
-def process_file_to_staging(file_path, batch_id, session_id):
-    """Process a single CSV file into staging table with metadata"""
-    logger.info(f"Processing {os.path.basename(file_path)}...")
-    file_start = time.time()
-    
-    # Get source file information
-    file_size = os.path.getsize(file_path)
-    file_modified = datetime.fromtimestamp(os.path.getmtime(file_path))
-    
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                # Process data and add metadata columns
-                from io import StringIO
-                import csv
-                
-                # Create a new CSV with metadata columns
-                output_buffer = StringIO()
-                writer = csv.writer(output_buffer)
-                
-                # Write header with metadata columns
-                writer.writerow([
-                    'postcode', 'positional_quality_indicator', 'easting', 'northing',
-                    'country_code', 'nhs_regional_ha_code', 'nhs_ha_code',
-                    'admin_county_code', 'admin_district_code', 'admin_ward_code',
-                    'raw_line', 'source_name', 'upload_user', 'upload_timestamp',
-                    'batch_id', 'raw_filename', 'file_path', 'file_size', 'file_modified', 'session_id'
-                ])
-                
-                # Process each data row and add metadata
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        # Add metadata columns
-                        metadata_row = row + [
-                            ','.join(row) if row else '',  # raw_line (join all columns)
-                            'Code_Point_Open',  # source_name
-                            USER,  # upload_user
-                            datetime.now().isoformat(),  # upload_timestamp
-                            batch_id,  # batch_id
-                            os.path.basename(file_path),  # raw_filename
-                            file_path,  # file_path
-                            str(file_size),  # file_size
-                            file_modified.isoformat(),  # file_modified
-                            session_id  # session_id
-                        ]
-                        writer.writerow(metadata_row)
-                
-                # Reset buffer and copy to staging table
-                output_buffer.seek(0)
-                copy_sql = """
-                    COPY code_point_open_staging (
-                        postcode, positional_quality_indicator, easting, northing,
-                        country_code, nhs_regional_ha_code, nhs_ha_code,
-                        admin_county_code, admin_district_code, admin_ward_code,
-                        raw_line, source_name, upload_user, upload_timestamp,
-                        batch_id, raw_filename, file_path, file_size, file_modified, session_id
-                    )
-                    FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
-                """
-                cur.copy_expert(sql=copy_sql, file=output_buffer)
-                conn.commit()
-                
-                # Get count of loaded rows for this file
+                # Check if table exists
                 cur.execute("""
-                    SELECT COUNT(*) FROM code_point_open_staging 
-                    WHERE batch_id = %s AND raw_filename = %s
-                """, (batch_id, os.path.basename(file_path)))
-                row_result = cur.fetchone()
-                file_rows = row_result[0] if row_result else 0
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = 'code_point_open_staging'
+                    );
+                """)
+                table_exists = cur.fetchone()[0]
                 
-                file_time = time.time() - file_start
-                logger.info(f"  Loaded {file_rows} rows in {file_time:.1f}s")
-                logger.info(f"  File size: {file_size:,} bytes")
+                if not table_exists:
+                    logger.error("❌ Table 'code_point_open_staging' does not exist!")
+                    logger.error("Please create the table first using database setup scripts.")
+                    return False
                 
-                return file_rows
+                logger.info("✅ Staging table exists")
+                return True
                 
     except Exception as e:
-        logger.error(f"  Error processing {os.path.basename(file_path)}: {e}")
-        return 0
+        logger.error(f"Error checking staging table: {e}")
+        return False
 
-def load_data_to_staging(data_dir, session_id=None):
-    """Load Code Point Open data into staging table"""
+def create_combined_csv(data_dir, batch_id, session_id, output_csv_path=None):
+    """Create a combined CSV file from all individual CSV files"""
+    csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
+    if not csv_files:
+        logger.error("No CSV files found!")
+        return None
+    
+    # Create output CSV file
+    if output_csv_path is None:
+        output_csv_path = os.path.join(tempfile.gettempdir(), f'combined_codepoint_{batch_id}.csv')
+    
+    logger.info(f"Creating combined CSV file: {output_csv_path}")
+    logger.info(f"Processing {len(csv_files)} CSV files...")
+    
+    total_lines = 0
+    processed_files = 0
+    
+    try:
+        with open(output_csv_path, 'w', encoding='utf-8', newline='') as outfile:
+            writer = csv.writer(outfile)
+            
+            # Write header with metadata columns
+            writer.writerow([
+                'postcode', 'positional_quality_indicator', 'easting', 'northing',
+                'country_code', 'nhs_regional_ha_code', 'nhs_ha_code',
+                'admin_county_code', 'admin_district_code', 'admin_ward_code',
+                'source_name', 'upload_user', 'upload_timestamp',
+                'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id'
+            ])
+            
+            # Progress bar for files
+            with tqdm(csv_files, desc="Combining CSV files", unit="file") as pbar:
+                for file_path in pbar:
+                    file_name = os.path.basename(file_path)
+                    pbar.set_description(f"Processing {file_name}")
+                    
+                    # Get file metadata
+                    file_size = os.path.getsize(file_path)
+                    file_modified = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    
+                    # Count lines in current file
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_lines = sum(1 for _ in f)
+                    
+                    # Process each data row and add metadata
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            # Add metadata columns
+                            metadata_row = row + [
+                                'Code_Point_Open',  # source_name
+                                USER,  # upload_user
+                                datetime.now().isoformat(),  # upload_timestamp
+                                batch_id,  # batch_id
+                                file_name,  # source_file
+                                file_size,  # file_size (as bigint)
+                                file_modified.isoformat(),  # file_modified
+                                session_id  # session_id
+                            ]
+                            writer.writerow(metadata_row)
+                            total_lines += 1
+                    
+                    processed_files += 1
+                    pbar.set_postfix({
+                        'Files': f"{processed_files}/{len(csv_files)}",
+                        'Lines': f"{total_lines:,}",
+                        'Size': f"{os.path.getsize(output_csv_path)/1024/1024:.1f}MB"
+                    })
+        
+        logger.info(f"✅ Combined CSV created successfully!")
+        logger.info(f"📁 Output file: {output_csv_path}")
+        logger.info(f"📊 Total lines: {total_lines:,}")
+        logger.info(f"📊 Files processed: {processed_files}")
+        logger.info(f"📊 File size: {os.path.getsize(output_csv_path)/1024/1024:.1f} MB")
+        
+        return output_csv_path
+        
+    except Exception as e:
+        logger.error(f"Error creating combined CSV: {e}")
+        return None
+
+def load_data_to_staging(data_dir, session_id=None, output_csv_path=None):
+    """Load Code Point Open data into staging table using combined CSV approach"""
     start_time = time.time()
     csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
     logger.info(f"Found {len(csv_files)} CSV files in {data_dir}")
@@ -183,16 +175,59 @@ def load_data_to_staging(data_dir, session_id=None):
     logger.info(f"Session ID: {session_id}")
 
     try:
-        total_rows_inserted = 0
+        # Step 1: Create combined CSV file
+        combined_csv_path = create_combined_csv(data_dir, batch_id, session_id, output_csv_path)
+        if not combined_csv_path:
+            logger.error("Failed to create combined CSV file!")
+            return False, None
         
-        for file_path in csv_files:
-            file_rows = process_file_to_staging(file_path, batch_id, session_id)
-            total_rows_inserted += file_rows
+        # Step 2: Load combined CSV into database
+        logger.info("Loading combined CSV into database...")
+        load_start = time.time()
         
-        logger.info(f"Total rows in staging: {total_rows_inserted}")
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use copy_expert to load the combined CSV file from client side
+                copy_sql = """
+                    COPY code_point_open_staging (
+                        postcode, positional_quality_indicator, easting, northing,
+                        country_code, nhs_regional_ha_code, nhs_ha_code,
+                        admin_county_code, admin_district_code, admin_ward_code,
+                        source_name, upload_user, upload_timestamp,
+                        batch_id, source_file, file_size, file_modified, session_id
+                    )
+                    FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
+                """
+                
+                with tqdm(total=1, desc="Loading to database", unit="file") as pbar:
+                    with open(combined_csv_path, 'r', encoding='utf-8') as csv_file:
+                        cur.copy_expert(sql=copy_sql, file=csv_file)
+                    conn.commit()
+                    pbar.update(1)
+                
+                # Get count of loaded rows
+                cur.execute("""
+                    SELECT COUNT(*) FROM code_point_open_staging 
+                    WHERE batch_id = %s
+                """, (batch_id,))
+                row_result = cur.fetchone()
+                total_rows_inserted = row_result[0] if row_result else 0
         
+        load_time = time.time() - load_start
         total_time = time.time() - start_time
-        logger.info(f"Total processing time: {total_time:.1f} seconds")
+        
+        logger.info(f"✅ Database loading completed!")
+        logger.info(f"📊 Total rows loaded: {total_rows_inserted:,}")
+        logger.info(f"⏱️  Database load time: {load_time:.1f} seconds")
+        logger.info(f"⏱️  Total processing time: {total_time:.1f} seconds")
+        
+        # Clean up temporary file if it was created automatically
+        if output_csv_path is None and os.path.exists(combined_csv_path):
+            try:
+                os.remove(combined_csv_path)
+                logger.info(f"🗑️  Cleaned up temporary file: {combined_csv_path}")
+            except Exception as e:
+                logger.warning(f"Could not remove temporary file {combined_csv_path}: {e}")
         
         return True, batch_id
         
@@ -222,11 +257,6 @@ def verify_staging_data_quality(batch_id=None, session_id=None):
                 total_count_result = cur.fetchone()
                 total_count = total_count_result[0] if total_count_result else 0
                 
-                # Check for empty rows
-                cur.execute(f"SELECT COUNT(*) FROM code_point_open_staging {where_clause} AND (raw_line IS NULL OR raw_line = '');", params)
-                empty_result = cur.fetchone()
-                empty_count = empty_result[0] if empty_result else 0
-                
                 # Check for null postcodes
                 cur.execute(f"SELECT COUNT(*) FROM code_point_open_staging {where_clause} AND postcode IS NULL;", params)
                 null_postcode_result = cur.fetchone()
@@ -237,8 +267,7 @@ def verify_staging_data_quality(batch_id=None, session_id=None):
                 logger.info("=" * 60)
                 logger.info(f"Total records: {total_count:,}")
                 logger.info(f"Null postcodes: {null_postcode_count}")
-                logger.info(f"Empty rows: {empty_count}")
-                logger.info(f"Valid rows: {total_count - empty_count:,}")
+                logger.info(f"Valid rows: {total_count - null_postcode_count:,}")
                 if batch_id:
                     logger.info(f"Batch ID: {batch_id}")
                 if session_id:
@@ -256,6 +285,9 @@ def main():
     parser = argparse.ArgumentParser(description='Concurrency-Safe Code Point Open Staging Ingestion')
     parser.add_argument('--data-dir', default=DATA_DIR, help='Directory containing CSV files')
     parser.add_argument('--session-id', help='Session identifier for concurrent ingestion')
+    parser.add_argument('--output-csv', help='Output path for combined CSV file (optional, creates temp file if not specified)')
+    parser.add_argument('--max-rows', type=int, default=None, help='Maximum number of rows to ingest (for debugging)')
+    parser.add_argument('--use-temp-file', action='store_true', help='Use temporary file instead of memory buffer (for large datasets on Windows)')
     
     args = parser.parse_args()
     
@@ -264,16 +296,22 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Data directory: {args.data_dir}")
     logger.info(f"Session ID: {args.session_id or 'auto-generated'}")
+    if args.output_csv:
+        logger.info(f"Output CSV: {args.output_csv}")
+    else:
+        logger.info("Output CSV: Temporary file (will be cleaned up)")
     logger.info("=" * 60)
     
     try:
-        # Step 1: Ensure staging table exists
-        ensure_staging_table_exists()
+        # Step 1: Check if staging table exists
+        if not check_staging_table_exists():
+            sys.exit(1)
         
         # Step 2: Load data into staging table
         success, batch_id = load_data_to_staging(
             args.data_dir,
-            args.session_id
+            args.session_id,
+            args.output_csv
         )
         
         if success:
