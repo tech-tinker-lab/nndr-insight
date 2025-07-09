@@ -169,7 +169,12 @@ def process_gml_file_to_csv(filepath, source_name, batch_id, session_id, client_
         return 0
 
 def bulk_insert_from_csv(engine, csv_path):
-    logger.info(f"Bulk inserting from temp CSV: {csv_path}")
+    logger.info("Loading data from temporary file into database...")
+    
+    # Count rows in the CSV for progress bar
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        row_count = sum(1 for _ in f) - 1  # Subtract header
+    
     raw = engine.raw_connection()
     try:
         with raw.cursor() as cursor, open(csv_path, 'r', encoding='utf-8') as f:
@@ -178,7 +183,11 @@ def bulk_insert_from_csv(engine, csv_path):
                     id, fid, gml_id, feature_code, geometry, feature_type, properties, source_name, upload_user, upload_timestamp, batch_id, source_file, file_size, file_modified, session_id, client_name
                 ) FROM STDIN WITH (FORMAT csv)
             '''
-            cursor.copy_expert(copy_sql, f)
+            
+            with tqdm(total=row_count, desc="Database loading", unit="rows") as pbar:
+                cursor.copy_expert(copy_sql, f)
+                pbar.update(row_count)
+        
         raw.commit()
         logger.info("✅ Bulk insert from CSV completed.")
     except Exception as e:

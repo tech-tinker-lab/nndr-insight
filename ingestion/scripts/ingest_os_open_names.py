@@ -205,19 +205,26 @@ def load_os_open_names_to_staging(csv_files, batch_id, session_id, source_name, 
     # Bulk load with client-side COPY (works with local files)
     with get_connection() as conn:
         with conn.cursor() as cur:
-            # Use client-side COPY which can read local files
+            # Count rows in the combined CSV for progress bar
+            with open(combined_csv_path, 'r', encoding='utf-8') as csv_file:
+                row_count = sum(1 for _ in csv_file) - 1  # Subtract header
+            
+            logger.info("Loading data from temporary file into database...")
             with open(combined_csv_path, 'r', encoding='utf-8') as csv_file:
                 # Skip header row
                 next(csv_file)
                 
-                # Use COPY FROM STDIN for client-side loading
-                copy_sql = f"""
-                    COPY os_open_names_staging (
-                        {', '.join(data_columns + metadata_columns)}
-                    )
-                    FROM STDIN WITH (FORMAT CSV)
-                """
-                cur.copy_expert(copy_sql, csv_file)
+                # Use COPY FROM STDIN for client-side loading with progress
+                with tqdm(total=row_count, desc="Database loading", unit="rows") as pbar:
+                    copy_sql = f"""
+                        COPY os_open_names_staging (
+                            {', '.join(data_columns + metadata_columns)}
+                        )
+                        FROM STDIN WITH (FORMAT CSV)
+                    """
+                    cur.copy_expert(copy_sql, csv_file)
+                    pbar.update(row_count)
+                
                 conn.commit()
                 
                 cur.execute("""

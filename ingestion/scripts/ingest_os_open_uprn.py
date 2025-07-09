@@ -10,13 +10,15 @@ import os
 import sys
 import logging
 import argparse
+import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 import uuid
 
 # Load .env file from db_setup directory
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'db_setup', '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 # Database configuration
 USER = os.getenv("PGUSER")
@@ -44,6 +46,8 @@ def get_connection():
 
 def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, client_name=None, batch_id=None, max_rows=None):
     """Ultra-fast load of UPRN data into staging table using COPY directly from file, with audit fields and progress bar."""
+    start_time = time.time()  # Add missing start_time variable
+    
     if not csv_paths:
         logger.error("No CSV files provided for ingestion.")
         return False, None
@@ -133,17 +137,26 @@ def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, clie
                                 ]
                                 row_count += 1
 
-                # Write to a StringIO buffer in CSV format for COPY
-                output_buffer = StringIO()
-                writer = csv.writer(output_buffer)
-                writer.writerow([
-                    'uprn', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude',
-                    'source_name', 'upload_user', 'upload_timestamp',
-                    'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
-                ])
-                for row in row_generator():
-                    writer.writerow(row)
-                output_buffer.seek(0)
+                # Create temporary CSV file for large dataset
+                logger.info("Creating temporary CSV file for database insertion...")
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8-sig', newline='') as temp_csv:
+                    temp_csv_path = temp_csv.name
+                    writer = csv.writer(temp_csv)
+                    
+                    # Write header
+                    writer.writerow([
+                        'uprn', 'x_coordinate', 'y_coordinate', 'latitude', 'longitude',
+                        'source_name', 'upload_user', 'upload_timestamp',
+                        'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
+                    ])
+                    
+                    # Write data rows
+                    for row in row_generator():
+                        writer.writerow(row)
+
+                # Load data from temporary file
+                logger.info("Loading data from temporary file into database...")
+                load_start = time.time()
 
                 copy_sql = """
                     COPY os_open_uprn_staging (
@@ -153,8 +166,21 @@ def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, clie
                     )
                     FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
                 """
-                cur.copy_expert(sql=copy_sql, file=output_buffer)
+
+                with open(temp_csv_path, 'r', encoding='utf-8-sig') as csv_file:
+                    cur.copy_expert(sql=copy_sql, file=csv_file)
+
                 conn.commit()
+
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_csv_path)
+                    logger.info("Temporary file cleaned up successfully")
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary file {temp_csv_path}: {e}")
+
+                load_time = time.time() - load_start
+                total_time = time.time() - start_time
 
                 # Get record count for this batch
                 cur.execute("""
@@ -164,8 +190,10 @@ def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, clie
                 rowcount_result = cur.fetchone()
                 rowcount = rowcount_result[0] if rowcount_result else 0
 
-                logger.info(f"Successfully loaded {rowcount} records into os_open_uprn_staging")
-                logger.info(f"Batch ID: {batch_id}")
+                logger.info(f"✅ Database loading completed!")
+                logger.info(f"📊 Total rows loaded: {rowcount:,}")
+                logger.info(f"⏱️  Database load time: {load_time:.1f} seconds")
+                logger.info(f"⏱️  Total processing time: {total_time:.1f} seconds")
 
                 return True, batch_id
 

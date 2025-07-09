@@ -175,7 +175,6 @@ credentials.json
 *.grib2
 
 # Database dumps
-*.sql
 *.dump
 *.backup
 

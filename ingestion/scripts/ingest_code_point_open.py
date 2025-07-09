@@ -209,6 +209,12 @@ def load_data_to_staging(data_dir, session_id=None, client_name=None, output_csv
         
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # Count rows in the combined CSV for progress bar
+                with open(combined_csv_path, 'r', encoding='utf-8') as csv_file:
+                    row_count = sum(1 for _ in csv_file) - 1  # Subtract header
+                
+                logger.info("Loading data from temporary file into database...")
+                
                 # Use copy_expert to load the combined CSV file from client side
                 copy_sql = """
                     COPY code_point_open_staging (
@@ -221,11 +227,12 @@ def load_data_to_staging(data_dir, session_id=None, client_name=None, output_csv
                     FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
                 """
                 
-                with tqdm(total=1, desc="Loading to database", unit="file") as pbar:
+                with tqdm(total=row_count, desc="Database loading", unit="rows") as pbar:
                     with open(combined_csv_path, 'r', encoding='utf-8') as csv_file:
                         cur.copy_expert(sql=copy_sql, file=csv_file)
-                    conn.commit()
-                    pbar.update(1)
+                    pbar.update(row_count)
+                
+                conn.commit()
                 
                 # Get count of loaded rows
                 cur.execute("""
