@@ -86,15 +86,16 @@ def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, clie
                 # Count total lines for progress bar
                 total_lines = 0
                 for csv_path in csv_paths:
-                    with open(csv_path, 'r', encoding='utf-8') as f_count:
+                    with open(csv_path, 'r', encoding='utf-8-sig') as f_count:
                         total_lines += sum(1 for _ in f_count) - 1  # exclude header
 
                 def row_generator():
+                    row_count = 0
                     for csv_path in csv_paths:
                         file_size = os.path.getsize(csv_path)
                         file_modified = datetime.fromtimestamp(os.path.getmtime(csv_path))
                         source_file = os.path.basename(csv_path)
-                        with open(csv_path, 'r', encoding='utf-8') as f:
+                        with open(csv_path, 'r', encoding='utf-8-sig') as f:
                             reader = csv.reader(f)
                             header = next(reader)
                             
@@ -109,6 +110,11 @@ def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, clie
                             next(reader)  # Skip header again
                             
                             for row in tqdm(reader, total=total_lines, desc=f"Processing rows from {os.path.basename(csv_path)}"):
+                                # Check max_rows limit
+                                if max_rows is not None and row_count >= max_rows:
+                                    logger.info(f"Reached max_rows limit ({max_rows}), stopping processing")
+                                    return
+                                
                                 yield [
                                     row[0] if len(row) > 0 else '',  # uprn
                                     row[1] if len(row) > 1 else '',  # x_coordinate
@@ -125,6 +131,7 @@ def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, clie
                                     session_id,                      # session_id
                                     client_name                      # client_name
                                 ]
+                                row_count += 1
 
                 # Write to a StringIO buffer in CSV format for COPY
                 output_buffer = StringIO()
@@ -193,8 +200,8 @@ def verify_staging_data_quality(batch_id=None, session_id=None):
                 null_uprn_result = cur.fetchone()
                 null_uprn_count = null_uprn_result[0] if null_uprn_result else 0
                 
-                # Check for empty rows
-                cur.execute(f"SELECT COUNT(*) FROM os_open_uprn_staging {where_clause} AND (raw_line IS NULL OR raw_line = '');", params)
+                # Check for empty UPRNs (instead of raw_line)
+                cur.execute(f"SELECT COUNT(*) FROM os_open_uprn_staging {where_clause} AND (uprn IS NULL OR uprn = '');", params)
                 empty_result = cur.fetchone()
                 empty_count = empty_result[0] if empty_result else 0
                 
@@ -203,8 +210,8 @@ def verify_staging_data_quality(batch_id=None, session_id=None):
                 logger.info("=" * 60)
                 logger.info(f"Total records: {total_count:,}")
                 logger.info(f"Null UPRNs: {null_uprn_count}")
-                logger.info(f"Empty rows: {empty_count}")
-                logger.info(f"Valid rows: {total_count - empty_count:,}")
+                logger.info(f"Empty UPRNs: {empty_count}")
+                logger.info(f"Valid UPRNs: {total_count - empty_count:,}")
                 if batch_id:
                     logger.info(f"Batch ID: {batch_id}")
                 if session_id:
