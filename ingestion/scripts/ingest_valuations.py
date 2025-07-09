@@ -45,9 +45,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Valuations Staging-Only Ingestion')
     
     # Required: CSV file path
-    parser.add_argument('csv_file', nargs='?', 
-                       default="data/valuations.csv",
-                       help='Path to valuations CSV file')
+    parser.add_argument('--source-path', required=True, help='Path to valuations CSV file or directory')
     
     # Optional: Client and source information
     parser.add_argument('--client', 
@@ -62,6 +60,7 @@ def parse_arguments():
     # Optional: Database override
     parser.add_argument('--dbname', 
                        help='Override database name from environment')
+    parser.add_argument('--max-rows', type=int, default=None, help='Maximum number of rows to ingest (for debugging)')
     
     return parser.parse_args()
 
@@ -84,71 +83,60 @@ def get_file_metadata(file_path):
         'file_path': file_path
     }
 
-def load_valuations_to_staging(csv_path, batch_id, session_id, source_name, client_name, file_metadata):
+def load_valuations_to_staging(csv_files, batch_id, session_id, source_name, client_name, max_rows=None):
     """Load valuations data into staging table"""
-    if not os.path.isfile(csv_path):
-        logger.error(f"CSV file not found: {csv_path}")
-        return False, 0
-
-    start_time = datetime.now()
-    
+    import csv
+    from io import StringIO
+    from tqdm import tqdm
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                logger.info(f"Starting valuations staging ingestion: {csv_path}")
+                logger.info(f"Starting valuations staging ingestion: {csv_files}")
                 logger.info(f"Batch ID: {batch_id}")
                 logger.info(f"Session ID: {session_id}")
                 logger.info(f"Source: {source_name}")
                 logger.info(f"Client: {client_name}")
-                
-                # Use COPY for fast bulk insertion
-                from io import StringIO
-                import csv
-                
                 output_buffer = StringIO()
                 writer = csv.writer(output_buffer)
-                
-                # Define valuations columns (adjust based on your CSV structure)
                 columns = [
                     'ba_reference', 'valuation_date', 'rateable_value', 'valuation_type',
                     'valuation_reason', 'assessor_name', 'assessment_date', 'notes'
                 ]
-                
-                # Add metadata columns
                 metadata_columns = [
-                    'raw_line', 'source_name', 'upload_user', 'upload_timestamp',
-                    'batch_id', 'raw_filename', 'file_path', 'file_size', 
-                    'file_modified', 'session_id', 'client_name'
+                    'source_name', 'upload_user', 'upload_timestamp',
+                    'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
                 ]
-                
-                # Write header
                 writer.writerow(columns + metadata_columns)
-                
-                # Process each data row and add metadata
-                with open(csv_path, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        # Ensure row has enough columns
-                        while len(row) < len(columns):
-                            row.append('')
-                        
-                        # Add metadata columns
-                        metadata_row = row + [
-                            ','.join(row),  # raw_line (all columns as CSV)
-                            source_name,  # source_name
-                            USER,  # upload_user
-                            datetime.now().isoformat(),  # upload_timestamp
-                            batch_id,  # batch_id
-                            file_metadata['file_name'],  # raw_filename
-                            file_metadata['file_path'],  # file_path
-                            str(file_metadata['file_size']),  # file_size
-                            file_metadata['file_modified'].isoformat(),  # file_modified
-                            session_id,  # session_id
-                            client_name  # client_name
-                        ]
-                        writer.writerow(metadata_row)
-                
-                # Reset buffer and copy to staging table
+                row_counter = 0
+                for csv_file in csv_files:
+                    file_size = os.path.getsize(csv_file)
+                    file_modified = datetime.fromtimestamp(os.path.getmtime(csv_file))
+                    file_name = os.path.basename(csv_file)
+                    with open(csv_file, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        pbar = tqdm(reader, desc=f"Ingesting {file_name}")
+                        for row in pbar:
+                            while len(row) < len(columns):
+                                row.append('')
+                            metadata_row = [
+                                source_name,
+                                USER,
+                                datetime.now().isoformat(),
+                                batch_id,
+                                file_name,
+                                str(file_size),
+                                file_modified.isoformat(),
+                                session_id,
+                                client_name
+                            ]
+                            writer.writerow(row + metadata_row)
+                            row_counter += 1
+                            if max_rows is not None and row_counter >= max_rows:
+                                logger.info(f"Reached max_rows={max_rows}, stopping early for debug.")
+                                break
+                        pbar.close()
+                    if max_rows is not None and row_counter >= max_rows:
+                        break
                 output_buffer.seek(0)
                 copy_sql = f"""
                     COPY valuations_staging (
@@ -158,24 +146,14 @@ def load_valuations_to_staging(csv_path, batch_id, session_id, source_name, clie
                 """
                 cur.copy_expert(sql=copy_sql, file=output_buffer)
                 conn.commit()
-
-                # Get record count for this batch
                 cur.execute("""
                     SELECT COUNT(*) FROM valuations_staging 
                     WHERE batch_id = %s AND session_id = %s
                 """, (batch_id, session_id))
                 rowcount_result = cur.fetchone()
                 rowcount = rowcount_result[0] if rowcount_result else 0
-                
-                end_time = datetime.now()
-                duration = (end_time - start_time).total_seconds()
-                rate = rowcount / duration if duration > 0 else 0
-                
-                logger.info(f"✅ Successfully loaded {rowcount:,} rows in {duration:.1f}s")
-                logger.info(f"📊 Rate: {rate:,.0f} rows/second")
-                
+                logger.info(f"✅ Successfully loaded {rowcount:,} rows")
                 return True, rowcount
-                
     except Exception as e:
         logger.error(f"❌ Error during staging ingestion: {e}")
         return False, 0
@@ -248,16 +226,35 @@ def main():
     source_name = args.source or "VALUATIONS_DEFAULT"
     client_name = args.client or "default_client"
     
-    # Get file metadata
-    file_metadata = get_file_metadata(args.csv_file)
-    if not file_metadata:
-        logger.error(f"Could not read file metadata for: {args.csv_file}")
+    # Determine if source-path is a file or directory
+    if os.path.isdir(args.source_path):
+        csv_files = [os.path.join(args.source_path, f) for f in os.listdir(args.source_path) if f.lower().endswith('.csv')]
+        if not csv_files:
+            logger.error(f"No CSV files found in directory: {args.source_path}")
+            sys.exit(1)
+    elif os.path.isfile(args.source_path):
+        csv_files = [args.source_path]
+    else:
+        logger.error(f"source-path is not a valid file or directory: {args.source_path}")
         sys.exit(1)
+    
+    # Improved file metadata logging
+    if len(csv_files) == 1:
+        logger.info(f"File path: {csv_files[0]}")
+        logger.info(f"File size: {os.path.getsize(csv_files[0])}")
+        logger.info(f"File modified: {datetime.fromtimestamp(os.path.getmtime(csv_files[0]))}")
+    else:
+        logger.info(f"Number of files: {len(csv_files)}")
+        logger.info(f"First file: {csv_files[0]}")
+        logger.info(f"First file size: {os.path.getsize(csv_files[0])}")
+        logger.info(f"First file modified: {datetime.fromtimestamp(os.path.getmtime(csv_files[0]))}")
+        total_size = sum(os.path.getsize(f) for f in csv_files)
+        logger.info(f"Total size of all files: {total_size}")
     
     logger.info("=" * 60)
     logger.info("VALUATIONS STAGING-ONLY INGESTION")
     logger.info("=" * 60)
-    logger.info(f"CSV file: {args.csv_file}")
+    logger.info(f"CSV files: {csv_files}")
     logger.info(f"Staging table: valuations_staging")
     logger.info(f"Source: {source_name}")
     logger.info(f"Client: {client_name}")
@@ -268,7 +265,7 @@ def main():
     try:
         # Load data into staging table
         success, rowcount = load_valuations_to_staging(
-            args.csv_file, batch_id, session_id, source_name, client_name, file_metadata
+            csv_files, batch_id, session_id, source_name, client_name, max_rows=args.max_rows
         )
         
         if success:

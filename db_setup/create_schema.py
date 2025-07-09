@@ -48,6 +48,11 @@ SQL_FILES = [
     'reference/nndr_ratepayers_staging.sql',
     'reference/nndr_ratepayers.sql',
     'reference/nndr_summary_valuation_staging.sql',
+    'reference/nndr_properties_staging.sql',
+    'reference/lad_boundaries_staging.sql',
+    'reference/valuations_staging.sql',
+    'reference/historic_valuations_staging.sql',
+    'reference/gazetteer_staging.sql',
     # Postcode tables (staging and master)
     'postcode/code_point_open_staging.sql',
     'postcode/code_point_open.sql',
@@ -59,7 +64,6 @@ SQL_FILES = [
     # Street tables (staging and master)
     'street/os_open_map_local_staging.sql',
     'street/os_open_map_local.sql',
-    'street/os_open_usrn_staging.sql',
     'street/usrn_streets.sql',
 ]
 
@@ -120,9 +124,11 @@ if __name__ == "__main__":
     parser.add_argument('--file', type=str, help='Text file listing .sql files to execute (one per line)')
     args = parser.parse_args()
 
+    # Get SQL files list
     if args.file:
         sql_files = get_sql_files_from_txt(args.file)
     else:
         sql_files = SQL_FILES
 
+    # Call main with both recreate_db flag and sql_files
     main(recreate_db=args.recreate_db, sql_files=sql_files) 

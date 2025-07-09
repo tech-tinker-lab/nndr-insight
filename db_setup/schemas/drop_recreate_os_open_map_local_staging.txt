@@ -1,0 +1,3 @@
+# Drop and recreate OS Open Map Local staging table
+street/01_drop_os_open_map_local_staging.sql
+street/02_create_os_open_map_local_staging.sql 

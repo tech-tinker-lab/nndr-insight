@@ -1,0 +1,75 @@
+# Street Schema Documentation
+
+## OS Open USRN Staging Table
+
+### Table: os_open_usrn_staging
+
+**Purpose:** Staging table for OS Open USRN (Unique Street Reference Number) data from GeoPackage files.
+
+**File:** `os_open_usrn_staging.sql`
+
+### Schema Structure
+
+#### Data Columns (3 columns)
+- `geometry` GEOMETRY(GEOMETRY, 27700) - PostGIS geometry column (British National Grid)
+- `usrn` TEXT - Unique Street Reference Number
+- `street_type` TEXT - Type of street/road
+
+#### Standard Metadata Columns (9 columns)
+- `source_name` TEXT - Source identifier
+- `upload_user` TEXT - User who uploaded the data
+- `upload_timestamp` TIMESTAMP - When data was uploaded
+- `batch_id` TEXT - Batch identifier for tracking
+- `source_file` TEXT - Original file name
+- `file_size` BIGINT - File size in bytes
+- `file_modified` TIMESTAMP - File modification time
+- `session_id` TEXT - Session identifier
+- `client_name` TEXT - Client identifier
+
+### Indexes
+- `idx_os_open_usrn_staging_batch` - Batch ID index for filtering
+- `idx_os_open_usrn_staging_session` - Session ID index for filtering
+- `idx_os_open_usrn_staging_usrn` - USRN index for lookups
+- `idx_os_open_usrn_staging_geometry` - GiST spatial index for geometry queries
+
+### Drop and Recreate Process
+
+**File:** `drop_recreate_usrn_staging.sql`
+
+**When to use:** When the staging table has incorrect geometry column type (e.g., TEXT instead of GEOMETRY)
+
+**Process:**
+1. Drops existing table (if exists)
+2. Creates new table with correct PostGIS geometry column
+3. Creates all necessary indexes
+4. Verifies table creation and geometry column type
+
+**Usage:**
+```sql
+-- Run this SQL file to fix geometry column issues
+\i db_setup/schemas/street/drop_recreate_usrn_staging.sql
+```
+
+### Common Issues and Solutions
+
+#### Issue: "COPY from stdin failed: error in .read() call"
+**Cause:** Geometry column is TEXT instead of GEOMETRY type
+**Solution:** Run `drop_recreate_usrn_staging.sql`
+
+#### Issue: "find_srid() - could not find the corresponding SRID"
+**Cause:** Geometry column not properly configured for PostGIS
+**Solution:** Run `drop_recreate_usrn_staging.sql`
+
+#### Issue: "Staging table has wrong geometry column type"
+**Cause:** Table exists but with incorrect schema
+**Solution:** Run `drop_recreate_usrn_staging.sql`
+
+### Data Sources
+- OS Open USRN GeoPackage files (.gpkg)
+- Layer name: "openUSRN"
+- Coordinate system: British National Grid (EPSG:27700)
+
+### Related Files
+- `ingest_os_open_usrn.py` - Python ingestion script
+- `os_open_usrn_staging.sql` - Standard table creation
+- `drop_recreate_usrn_staging.sql` - Drop and recreate script 

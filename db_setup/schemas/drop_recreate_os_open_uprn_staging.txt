@@ -1,0 +1,3 @@
+# Drop and recreate OS Open UPRN staging table
+reference/01_drop_os_open_uprn_staging.sql
+reference/02_create_os_open_uprn_staging.sql 

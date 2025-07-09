@@ -42,46 +42,11 @@ def get_connection():
         port=PORT
     )
 
-def ensure_staging_table_exists():
-    """Ensure the staging table exists with proper schema"""
-    logger.info("Ensuring os_open_uprn_staging table exists...")
-    
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                # Create staging table if it doesn't exist
-                create_staging_sql = """
-                CREATE TABLE IF NOT EXISTS os_open_uprn_staging (
-                    uprn TEXT,
-                    x_coordinate TEXT,
-                    y_coordinate TEXT,
-                    latitude TEXT,
-                    longitude TEXT,
-                    raw_line TEXT,
-                    source_name TEXT,
-                    upload_user TEXT,
-                    upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    batch_id TEXT,
-                    raw_filename TEXT,
-                    file_path TEXT,
-                    file_size BIGINT,
-                    file_modified TIMESTAMP,
-                    session_id TEXT
-                );
-                """
-                cur.execute(create_staging_sql)
-                conn.commit()
-                logger.info("Staging table verified/created successfully")
-                
-    except Exception as e:
-        logger.error(f"Error ensuring staging table exists: {e}")
-        raise
-
-def load_uprn_data_to_staging(csv_path, session_id=None, source_name=None, client_name=None, batch_id=None):
+def load_uprn_data_to_staging(csv_paths, session_id=None, source_name=None, client_name=None, batch_id=None, max_rows=None):
     """Ultra-fast load of UPRN data into staging table using COPY directly from file, with audit fields and progress bar."""
-    if not os.path.isfile(csv_path):
-        logger.error(f"CSV file not found: {csv_path}")
-        return False
+    if not csv_paths:
+        logger.error("No CSV files provided for ingestion.")
+        return False, None
 
     # Generate unique batch ID as UUID if not provided
     batch_id = batch_id or str(uuid.uuid4())
@@ -90,52 +55,76 @@ def load_uprn_data_to_staging(csv_path, session_id=None, source_name=None, clien
     client_name = client_name or "default_client"
 
     # Get source file information
-    file_size = os.path.getsize(csv_path)
-    file_modified = datetime.fromtimestamp(os.path.getmtime(csv_path))
-    source_file = os.path.basename(csv_path)
+    file_size = 0
+    file_modified = datetime.fromtimestamp(0) # Default to epoch
+    source_file = "N/A"
+    for csv_path in csv_paths:
+        if not os.path.isfile(csv_path):
+            logger.error(f"CSV file not found: {csv_path}")
+            return False, None
+        file_size += os.path.getsize(csv_path)
+        file_modified = max(file_modified, datetime.fromtimestamp(os.path.getmtime(csv_path)))
+        source_file = os.path.basename(csv_path)
 
     logger.info(f"Batch ID: {batch_id}")
     logger.info(f"Session ID: {session_id}")
     logger.info(f"Source: {source_name}")
     logger.info(f"Client: {client_name}")
-    logger.info(f"Source file: {csv_path}")
+    logger.info(f"Source file: {csv_paths}")
     logger.info(f"File size: {file_size:,} bytes")
     logger.info(f"File modified: {file_modified}")
 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                logger.info(f"Starting ultra-fast bulk load from {csv_path} into os_open_uprn_staging...")
+                logger.info(f"Starting ultra-fast bulk load from {csv_paths} into os_open_uprn_staging...")
 
                 import csv
                 from io import StringIO
                 from tqdm import tqdm
 
                 # Count total lines for progress bar
-                with open(csv_path, 'r', encoding='utf-8') as f_count:
-                    total_lines = sum(1 for _ in f_count) - 1  # exclude header
+                total_lines = 0
+                for csv_path in csv_paths:
+                    with open(csv_path, 'r', encoding='utf-8') as f_count:
+                        total_lines += sum(1 for _ in f_count) - 1  # exclude header
 
                 def row_generator():
-                    with open(csv_path, 'r', encoding='utf-8') as f:
-                        reader = csv.reader(f)
-                        header = next(reader)
-                        for row in tqdm(reader, total=total_lines, desc="Processing rows"):
-                            yield [
-                                row[0] if len(row) > 0 else '',  # uprn
-                                row[1] if len(row) > 1 else '',  # x_coordinate
-                                row[2] if len(row) > 2 else '',  # y_coordinate
-                                row[3] if len(row) > 3 else '',  # latitude
-                                row[4] if len(row) > 4 else '',  # longitude
-                                source_name,                     # source_name
-                                USER,                            # upload_user
-                                datetime.now().isoformat(),      # upload_timestamp
-                                batch_id,                        # batch_id
-                                source_file,                     # source_file
-                                str(file_size),                  # file_size
-                                file_modified.isoformat(),       # file_modified
-                                session_id,                      # session_id
-                                client_name                      # client_name
-                            ]
+                    for csv_path in csv_paths:
+                        file_size = os.path.getsize(csv_path)
+                        file_modified = datetime.fromtimestamp(os.path.getmtime(csv_path))
+                        source_file = os.path.basename(csv_path)
+                        with open(csv_path, 'r', encoding='utf-8') as f:
+                            reader = csv.reader(f)
+                            header = next(reader)
+                            
+                            # Debug: Print header and first data row for analysis
+                            logger.info(f"CSV Header: {header}")
+                            first_row = next(reader)
+                            logger.info(f"First Data Row: {first_row}")
+                            logger.info(f"Header length: {len(header)}, First row length: {len(first_row)}")
+                            
+                            # Reset file pointer to start after header
+                            f.seek(0)
+                            next(reader)  # Skip header again
+                            
+                            for row in tqdm(reader, total=total_lines, desc=f"Processing rows from {os.path.basename(csv_path)}"):
+                                yield [
+                                    row[0] if len(row) > 0 else '',  # uprn
+                                    row[1] if len(row) > 1 else '',  # x_coordinate
+                                    row[2] if len(row) > 2 else '',  # y_coordinate
+                                    row[3] if len(row) > 3 else '',  # latitude
+                                    row[4] if len(row) > 4 else '',  # longitude
+                                    source_name,                     # source_name
+                                    USER,                            # upload_user
+                                    datetime.now().isoformat(),      # upload_timestamp
+                                    batch_id,                        # batch_id
+                                    source_file,                     # source_file
+                                    str(file_size),                  # file_size
+                                    file_modified.isoformat(),       # file_modified
+                                    session_id,                      # session_id
+                                    client_name                      # client_name
+                                ]
 
                 # Write to a StringIO buffer in CSV format for COPY
                 output_buffer = StringIO()
@@ -233,9 +222,7 @@ def main():
     parser = argparse.ArgumentParser(description='OS Open UPRN Staging-Only Ingestion')
     
     # Required: CSV file path
-    parser.add_argument('--source-file', nargs='?', 
-                       default="backend/data/osopenuprn_202506_csv/osopenuprn_202506.csv",
-                       help='Path to CSV file')
+    parser.add_argument('--source-path', required=True, help='Path to CSV file or directory')
     
     # Optional: Client and source information
     parser.add_argument('--client', 
@@ -250,6 +237,7 @@ def main():
     # Optional: Database override
     parser.add_argument('--dbname', 
                        help='Override database name from environment')
+    parser.add_argument('--max-rows', type=int, default=None, help='Maximum number of rows to ingest (for debugging)')
     
     args = parser.parse_args()
     
@@ -266,10 +254,35 @@ def main():
     source_name = args.source or "OS_Open_UPRN_DEFAULT"
     client_name = args.client or "default_client"
     
+    # Determine if source-path is a file or directory
+    if os.path.isdir(args.source_path):
+        csv_files = [os.path.join(args.source_path, f) for f in os.listdir(args.source_path) if f.lower().endswith('.csv')]
+        if not csv_files:
+            logger.error(f"No CSV files found in directory: {args.source_path}")
+            sys.exit(1)
+    elif os.path.isfile(args.source_path):
+        csv_files = [args.source_path]
+    else:
+        logger.error(f"source-path is not a valid file or directory: {args.source_path}")
+        sys.exit(1)
+
+    # Improved file metadata logging
+    if len(csv_files) == 1:
+        logger.info(f"File path: {csv_files[0]}")
+        logger.info(f"File size: {os.path.getsize(csv_files[0])}")
+        logger.info(f"File modified: {datetime.fromtimestamp(os.path.getmtime(csv_files[0]))}")
+    else:
+        logger.info(f"Number of files: {len(csv_files)}")
+        logger.info(f"First file: {csv_files[0]}")
+        logger.info(f"First file size: {os.path.getsize(csv_files[0])}")
+        logger.info(f"First file modified: {datetime.fromtimestamp(os.path.getmtime(csv_files[0]))}")
+        total_size = sum(os.path.getsize(f) for f in csv_files)
+        logger.info(f"Total size of all files: {total_size}")
+
     logger.info("=" * 60)
     logger.info("OS OPEN UPRN STAGING-ONLY INGESTION")
     logger.info("=" * 60)
-    logger.info(f"Source file: {args.source_file}")
+    logger.info(f"CSV files: {csv_files}")
     logger.info(f"Staging table: os_open_uprn_staging")
     logger.info(f"Source: {source_name}")
     logger.info(f"Client: {client_name}")
@@ -287,22 +300,17 @@ def main():
 
     try:
         # Step 1: Ensure staging table exists
-        ensure_staging_table_exists()
+        # ensure_staging_table_exists()  # REMOVE THIS LINE
         
         # Step 2: Load data into staging table
-        result = load_uprn_data_to_staging(
-            args.source_file, 
+        success, batch_id = load_uprn_data_to_staging(
+            csv_files, 
             session_id,
             source_name,
             client_name,
-            batch_id
+            batch_id,
+            args.max_rows
         )
-        
-        if isinstance(result, tuple) and len(result) == 2:
-            success, batch_id = result
-        else:
-            success = result
-            batch_id = None
         
         if success:
             # Step 3: Verify staging data quality

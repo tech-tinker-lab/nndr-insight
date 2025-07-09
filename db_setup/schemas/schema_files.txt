@@ -1,4 +1,6 @@
 # List of .sql files to execute for schema creation (staging and master tables)
+# Enable PostGIS extension first
+00_enable_postgis.sql
 # Reference tables
 reference/os_open_uprn_staging.sql
 reference/os_open_uprn.sql
@@ -23,5 +25,7 @@ address/os_open_names.sql
 # Street tables
 street/os_open_map_local_staging.sql
 street/os_open_map_local.sql
-street/os_open_usrn_staging.sql
-street/usrn_streets.sql 
+street/usrn_streets.sql
+
+# Drop and recreate scripts (run manually when needed)
+# street/drop_recreate_usrn_staging.sql 

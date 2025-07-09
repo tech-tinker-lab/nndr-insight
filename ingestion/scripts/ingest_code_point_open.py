@@ -16,7 +16,11 @@ import logging
 import uuid
 import csv
 from datetime import datetime
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(path):
+        pass  # Fallback if dotenv not available
 from tqdm import tqdm
 
 # Load .env file from root directory
@@ -62,7 +66,8 @@ def check_staging_table_exists():
                         WHERE table_name = 'code_point_open_staging'
                     );
                 """)
-                table_exists = cur.fetchone()[0]
+                result = cur.fetchone()
+                table_exists = result[0] if result else False
                 
                 if not table_exists:
                     logger.error("❌ Table 'code_point_open_staging' does not exist!")
@@ -76,7 +81,7 @@ def check_staging_table_exists():
         logger.error(f"Error checking staging table: {e}")
         return False
 
-def create_combined_csv(data_dir, batch_id, session_id, output_csv_path=None):
+def create_combined_csv(data_dir, batch_id, session_id, client_name, output_csv_path=None):
     """Create a combined CSV file from all individual CSV files"""
     csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
     if not csv_files:
@@ -97,43 +102,44 @@ def create_combined_csv(data_dir, batch_id, session_id, output_csv_path=None):
         with open(output_csv_path, 'w', encoding='utf-8', newline='') as outfile:
             writer = csv.writer(outfile)
             
-            # Write header with metadata columns
+            # Write header with data columns + metadata columns (matching actual table structure)
             writer.writerow([
                 'postcode', 'positional_quality_indicator', 'easting', 'northing',
                 'country_code', 'nhs_regional_ha_code', 'nhs_ha_code',
                 'admin_county_code', 'admin_district_code', 'admin_ward_code',
                 'source_name', 'upload_user', 'upload_timestamp',
-                'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id'
+                'batch_id', 'source_file', 'file_size', 'file_modified', 'session_id', 'client_name'
             ])
             
             # Progress bar for files
             with tqdm(csv_files, desc="Combining CSV files", unit="file") as pbar:
-                for file_path in pbar:
-                    file_name = os.path.basename(file_path)
+                for csv_file in csv_files:
+                    file_name = os.path.basename(csv_file)
                     pbar.set_description(f"Processing {file_name}")
                     
                     # Get file metadata
-                    file_size = os.path.getsize(file_path)
-                    file_modified = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    file_size = os.path.getsize(csv_file)
+                    file_modified = datetime.fromtimestamp(os.path.getmtime(csv_file))
                     
                     # Count lines in current file
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(csv_file, 'r', encoding='utf-8') as f:
                         file_lines = sum(1 for _ in f)
                     
                     # Process each data row and add metadata
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(csv_file, 'r', encoding='utf-8') as f:
                         reader = csv.reader(f)
                         for row in reader:
-                            # Add metadata columns
+                            # Add metadata columns (matching actual table structure)
                             metadata_row = row + [
                                 'Code_Point_Open',  # source_name
                                 USER,  # upload_user
                                 datetime.now().isoformat(),  # upload_timestamp
                                 batch_id,  # batch_id
                                 file_name,  # source_file
-                                file_size,  # file_size (as bigint)
+                                file_size,  # file_size
                                 file_modified.isoformat(),  # file_modified
-                                session_id  # session_id
+                                session_id,  # session_id
+                                client_name  # client_name
                             ]
                             writer.writerow(metadata_row)
                             total_lines += 1
@@ -144,6 +150,7 @@ def create_combined_csv(data_dir, batch_id, session_id, output_csv_path=None):
                         'Lines': f"{total_lines:,}",
                         'Size': f"{os.path.getsize(output_csv_path)/1024/1024:.1f}MB"
                     })
+                    pbar.update(1)  # Update progress bar for each file processed
         
         logger.info(f"✅ Combined CSV created successfully!")
         logger.info(f"📁 Output file: {output_csv_path}")
@@ -157,12 +164,25 @@ def create_combined_csv(data_dir, batch_id, session_id, output_csv_path=None):
         logger.error(f"Error creating combined CSV: {e}")
         return None
 
-def load_data_to_staging(data_dir, session_id=None, output_csv_path=None):
+def load_data_to_staging(data_dir, session_id=None, client_name=None, output_csv_path=None):
     """Load Code Point Open data into staging table using combined CSV approach"""
     start_time = time.time()
     csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
     logger.info(f"Found {len(csv_files)} CSV files in {data_dir}")
     
+    # Improved file metadata logging
+    if len(csv_files) == 1:
+        logger.info(f"File path: {csv_files[0]}")
+        logger.info(f"File size: {os.path.getsize(csv_files[0])}")
+        logger.info(f"File modified: {datetime.fromtimestamp(os.path.getmtime(csv_files[0]))}")
+    else:
+        logger.info(f"Number of files: {len(csv_files)}")
+        logger.info(f"First file: {csv_files[0]}")
+        logger.info(f"First file size: {os.path.getsize(csv_files[0])}")
+        logger.info(f"First file modified: {datetime.fromtimestamp(os.path.getmtime(csv_files[0]))}")
+        total_size = sum(os.path.getsize(f) for f in csv_files)
+        logger.info(f"Total size of all files: {total_size}")
+
     if not csv_files:
         logger.error("No CSV files found!")
         return False, None
@@ -170,13 +190,15 @@ def load_data_to_staging(data_dir, session_id=None, output_csv_path=None):
     # Generate unique batch ID
     batch_id = f"codepoint_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     session_id = session_id or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    client_name = client_name or "default_client"
     
     logger.info(f"Batch ID: {batch_id}")
     logger.info(f"Session ID: {session_id}")
+    logger.info(f"Client: {client_name}")
 
     try:
         # Step 1: Create combined CSV file
-        combined_csv_path = create_combined_csv(data_dir, batch_id, session_id, output_csv_path)
+        combined_csv_path = create_combined_csv(data_dir, batch_id, session_id, client_name, output_csv_path)
         if not combined_csv_path:
             logger.error("Failed to create combined CSV file!")
             return False, None
@@ -194,7 +216,7 @@ def load_data_to_staging(data_dir, session_id=None, output_csv_path=None):
                         country_code, nhs_regional_ha_code, nhs_ha_code,
                         admin_county_code, admin_district_code, admin_ward_code,
                         source_name, upload_user, upload_timestamp,
-                        batch_id, source_file, file_size, file_modified, session_id
+                        batch_id, source_file, file_size, file_modified, session_id, client_name
                     )
                     FROM STDIN WITH (FORMAT CSV, HEADER TRUE)
                 """
@@ -235,7 +257,7 @@ def load_data_to_staging(data_dir, session_id=None, output_csv_path=None):
         logger.error(f"Error during ingestion: {e}")
         return False, None
 
-def verify_staging_data_quality(batch_id=None, session_id=None):
+def verify_staging_data_quality(batch_id=None, session_id=None, client_name=None):
     """Verify the loaded staging data quality"""
     logger.info("Verifying staging data quality...")
     
@@ -282,20 +304,37 @@ def verify_staging_data_quality(batch_id=None, session_id=None):
 
 def main():
     """Main execution function"""
+    # Change --data-dir to --source-path and support both file and directory
     parser = argparse.ArgumentParser(description='Concurrency-Safe Code Point Open Staging Ingestion')
-    parser.add_argument('--data-dir', default=DATA_DIR, help='Directory containing CSV files')
+    parser.add_argument('--source-path', required=True, help='Path to CSV file or directory containing CSV files')
     parser.add_argument('--session-id', help='Session identifier for concurrent ingestion')
+    parser.add_argument('--client', help='Client name for data traceability')
     parser.add_argument('--output-csv', help='Output path for combined CSV file (optional, creates temp file if not specified)')
     parser.add_argument('--max-rows', type=int, default=None, help='Maximum number of rows to ingest (for debugging)')
     parser.add_argument('--use-temp-file', action='store_true', help='Use temporary file instead of memory buffer (for large datasets on Windows)')
     
     args = parser.parse_args()
     
+    # Determine if source-path is a file or directory
+    if os.path.isdir(args.source_path):
+        data_dir = args.source_path
+        csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
+        if not csv_files:
+            logger.error(f"No CSV files found in directory: {data_dir}")
+            sys.exit(1)
+    elif os.path.isfile(args.source_path):
+        data_dir = os.path.dirname(args.source_path)
+        csv_files = [args.source_path]
+    else:
+        logger.error(f"source-path is not a valid file or directory: {args.source_path}")
+        sys.exit(1)
+
     logger.info("=" * 60)
     logger.info("CONCURRENCY-SAFE CODE POINT OPEN STAGING INGESTION")
     logger.info("=" * 60)
-    logger.info(f"Data directory: {args.data_dir}")
+    logger.info(f"Data directory: {data_dir}")
     logger.info(f"Session ID: {args.session_id or 'auto-generated'}")
+    logger.info(f"Client: {args.client or 'default_client'}")
     if args.output_csv:
         logger.info(f"Output CSV: {args.output_csv}")
     else:
@@ -309,14 +348,15 @@ def main():
         
         # Step 2: Load data into staging table
         success, batch_id = load_data_to_staging(
-            args.data_dir,
+            data_dir,
             args.session_id,
+            args.client,
             args.output_csv
         )
         
         if success:
             # Step 3: Verify staging data quality
-            verify_staging_data_quality(batch_id, args.session_id)
+            verify_staging_data_quality(batch_id, args.session_id, args.client)
             logger.info("✅ Code Point Open staging ingestion completed successfully!")
             if batch_id:
                 logger.info(f"📊 Data loaded into staging table with batch_id: {batch_id}")
