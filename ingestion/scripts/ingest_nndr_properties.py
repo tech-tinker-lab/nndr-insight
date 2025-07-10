@@ -63,46 +63,27 @@ def check_table_exists(table_name):
         return False
 
 def examine_csv_structure(csv_file):
-    """Examine the structure of a CSV file and return header info"""
     import csv
     try:
         with open(csv_file, 'r', encoding='utf-8') as f:
-            # First, try to detect the delimiter
-            first_line = f.readline().strip()
-            f.seek(0)  # Reset to beginning
-            
-            # Check for common delimiters
-            delimiters = [',', '|', '*', '\t', ';']
-            detected_delimiter = ','
-            max_fields = 1
-            
-            for delimiter in delimiters:
-                fields = first_line.split(delimiter)
-                if len(fields) > max_fields:
-                    max_fields = len(fields)
-                    detected_delimiter = delimiter
-            
-            logger.info(f"📋 CSV Structure Analysis for: {os.path.basename(csv_file)}")
-            logger.info(f"   File size: {os.path.getsize(csv_file):,} bytes")
-            logger.info(f"   Detected delimiter: '{detected_delimiter}'")
-            logger.info(f"   Number of columns: {max_fields}")
-            
-            # Read with detected delimiter
-            reader = csv.reader(f, delimiter=detected_delimiter)
-            header = next(reader)
-            
-            logger.info("   Columns found:")
-            for i, col in enumerate(header):
-                logger.info(f"     {i+1:2d}. {col}")
-            
-            return header, detected_delimiter
+            lines = [f.readline().strip() for _ in range(10)]
+            # Check for * delimiter and 17 columns in all lines
+            for idx, line in enumerate(lines):
+                if not line:
+                    continue
+                cols = line.split('*')
+                if len(cols) != 17:
+                    logger.error(f"Line {idx+1} in {os.path.basename(csv_file)} does not have 17 columns (found {len(cols)}). Aborting.")
+                    return None, ',', False
+            logger.info(f"Detected headerless, *-delimited file with 17 columns: {os.path.basename(csv_file)}")
+            header = [f'col{i+1}' for i in range(17)]
+            return header, '*', True
     except Exception as e:
         logger.error(f"❌ Error reading CSV file: {e}")
-        return None, None
+        return None, ',', False
 
 def map_columns_to_schema(csv_columns):
     """Map CSV columns to expected schema columns"""
-    # Expected columns in the staging table
     expected_columns = [
         'list_altered', 'community_code', 'ba_reference', 'property_category_code',
         'property_description', 'property_address', 'street_descriptor', 'locality',
@@ -110,35 +91,30 @@ def map_columns_to_schema(csv_columns):
         'partially_domestic_signal', 'rateable_value', 'scat_code',
         'appeal_settlement_code', 'unique_property_ref'
     ]
-    
-    # For NNDR 2010 data with numbered columns, create direct mapping
-    # Based on the data structure: 01*19967246000*11335048000*0335*The Occupier*SUITE 357 2***ARLINGTON SQUARE*DOWNSHIRE WAY**BRACKNELL*BERKS*RG12 1WA*87665*Offices And Premises*11.90*1868*1868*1850*2010*Bracknell Forest*002223000023357*30535335144*27-FEB-2018**203*NIA*157.00
-    
-    # Check if we have numbered columns (NNDR 2010 format)
-    if len(csv_columns) > 20 and all(col.isdigit() for col in csv_columns[:5]):
-        # NNDR 2010 specific mapping based on column positions
+    if csv_columns is None:
+        return {col: '' for col in expected_columns}, expected_columns
+    # If headerless 17-column NNDR historic format, use fixed mapping
+    if len(csv_columns) == 17 and all(col.startswith('col') for col in csv_columns):
         mapping = {
-            'list_altered': csv_columns[0] if len(csv_columns) > 0 else None,  # 01
-            'community_code': csv_columns[1] if len(csv_columns) > 1 else None,  # 19967246000
-            'ba_reference': csv_columns[2] if len(csv_columns) > 2 else None,  # 11335048000
-            'property_category_code': csv_columns[3] if len(csv_columns) > 3 else None,  # 0335
-            'property_description': csv_columns[4] if len(csv_columns) > 4 else None,  # The Occupier
-            'property_address': csv_columns[5] if len(csv_columns) > 5 else None,  # SUITE 357 2
-            'street_descriptor': csv_columns[8] if len(csv_columns) > 8 else None,  # ARLINGTON SQUARE
-            'locality': csv_columns[9] if len(csv_columns) > 9 else None,  # DOWNSHIRE WAY
-            'post_town': csv_columns[11] if len(csv_columns) > 11 else None,  # BRACKNELL
-            'administrative_area': csv_columns[12] if len(csv_columns) > 12 else None,  # BERKS
-            'postcode': csv_columns[13] if len(csv_columns) > 13 else None,  # RG12 1WA
-            'effective_date': csv_columns[24] if len(csv_columns) > 24 else None,  # 27-FEB-2018
-            'partially_domestic_signal': csv_columns[25] if len(csv_columns) > 25 else None,  # (empty)
-            'rateable_value': csv_columns[28] if len(csv_columns) > 28 else None,  # 157.00
-            'scat_code': csv_columns[27] if len(csv_columns) > 27 else None,  # NIA
-            'appeal_settlement_code': csv_columns[26] if len(csv_columns) > 26 else None,  # 203
-            'unique_property_ref': csv_columns[22] if len(csv_columns) > 22 else None,  # 002223000023357
+            'list_altered': 'col1',
+            'community_code': 'col2',
+            'ba_reference': 'col3',
+            'property_category_code': 'col4',
+            'property_description': 'col5',
+            'property_address': 'col6',
+            'street_descriptor': 'col7',
+            'locality': 'col8',
+            'post_town': 'col9',
+            'administrative_area': 'col10',
+            'postcode': 'col11',
+            'effective_date': 'col12',
+            'partially_domestic_signal': 'col13',
+            'rateable_value': 'col14',
+            'scat_code': 'col15',
+            'appeal_settlement_code': 'col16',
+            'unique_property_ref': 'col17',
         }
-        
-        # Check for unmapped columns
-        unmapped_columns = [col for col in expected_columns if mapping.get(col) is None]
+        unmapped_columns = []
         return mapping, unmapped_columns
     
     # Original logic for named columns
@@ -181,15 +157,15 @@ def map_columns_to_schema(csv_columns):
                     break
         
         if not mapped:
-            mapping[expected_col] = None  # Will be filled with empty string
+            mapping[expected_col] = ''  # Will be filled with empty string
             unmapped_columns.append(expected_col)
     
     return mapping, unmapped_columns
 
 def parse_arguments():
     """Parse command-line arguments"""
-    parser = argparse.ArgumentParser(description='NNDR Properties Staging-Only Ingestion')
-    parser.add_argument('--source-file', required=True, help='Path to NNDR properties CSV file or directory')
+    parser = argparse.ArgumentParser(description='NNDR Properties Staging-Only Ingestion (expects a single headerless, *-delimited file with exactly 17 columns)')
+    parser.add_argument('--source-file', required=True, help='Path to NNDR properties CSV file (must be headerless, *-delimited, 17 columns)')
     parser.add_argument('--client', help='Client identifier (e.g., "client_001", "internal_team")')
     parser.add_argument('--source', help='Source identifier (e.g., "NNDR_2024", "VOA_2025")')
     parser.add_argument('--session-id', help='Session identifier for concurrent ingestion (auto-generated if not provided)')
@@ -222,12 +198,14 @@ def count_rows_in_csv(csv_file, delimiter=','):
     """Count rows in CSV file for progress bar"""
     import csv
     try:
+        if not delimiter:
+            delimiter = ','
         with open(csv_file, 'r', encoding='utf-8') as f:
             return sum(1 for _ in csv.reader(f, delimiter=delimiter)) - 1  # Subtract header
     except Exception:
         return 0
 
-def load_nndr_properties_to_staging(csv_files, batch_id, session_id, source_name, client_name, max_rows=None):
+def load_nndr_properties_to_staging(csv_files, batch_id, session_id, source_name, client_name, max_rows=None, args=None):
     """Load NNDR properties data into staging table"""
     import csv
     from io import StringIO
@@ -266,13 +244,16 @@ def load_nndr_properties_to_staging(csv_files, batch_id, session_id, source_name
                     file_name = os.path.basename(csv_file)
                     
                     # Examine CSV structure
-                    csv_columns, detected_delimiter = examine_csv_structure(csv_file)
-                    if not csv_columns:
+                    csv_columns, detected_delimiter, is_headerless = examine_csv_structure(csv_file)
+                    if csv_columns is None:
                         logger.error(f"❌ Could not read CSV structure from {csv_file}")
                         continue
                     
                     # Map columns
                     column_mapping, unmapped_columns = map_columns_to_schema(csv_columns)
+                    if not column_mapping:
+                        logger.error(f"❌ Could not map columns for {csv_file}")
+                        continue
                     
                     if unmapped_columns:
                         logger.warning(f"⚠️  Unmapped columns for {file_name}: {unmapped_columns}")
@@ -287,19 +268,23 @@ def load_nndr_properties_to_staging(csv_files, batch_id, session_id, source_name
                     
                     with open(csv_file, 'r', encoding='utf-8') as f:
                         reader = csv.reader(f, delimiter=detected_delimiter)
-                        next(reader)  # Skip header
+                        if not is_headerless:
+                            next(reader)  # Skip header
                         
                         pbar = tqdm(reader, total=total_rows, desc=f"File {file_idx}/{total_files}: {file_name}")
                         
                         for row in pbar:
-                            # Create a dictionary from the CSV row
-                            row_dict = dict(zip(csv_columns, row))
+                            if len(row) != 17:
+                                logger.error(f"Row {row_counter+1} in {file_name} does not have 17 columns (found {len(row)}). Aborting.")
+                                sys.exit(1)
+                            row_dict = {f'col{i+1}': value for i, value in enumerate(row)}
                             
                             # Map to expected columns
                             mapped_row = []
                             for expected_col in columns:
-                                if column_mapping[expected_col] and column_mapping[expected_col] in row_dict:
-                                    mapped_row.append(row_dict[column_mapping[expected_col]])
+                                mapping_key = column_mapping.get(expected_col)
+                                if mapping_key is not None and mapping_key in row_dict:
+                                    mapped_row.append(row_dict[mapping_key])
                                 else:
                                     mapped_row.append('')  # Empty string for unmapped columns
                             
@@ -423,10 +408,8 @@ def main():
     
     # Determine if source-file is a file or directory
     if os.path.isdir(args.source_file):
-        csv_files = [os.path.join(args.source_file, f) for f in os.listdir(args.source_file) if f.lower().endswith('.csv')]
-        if not csv_files:
-            logger.error(f"No CSV files found in directory: {args.source_file}")
-            sys.exit(1)
+        logger.error(f"source-file is a directory: {args.source_file}. This script expects a single CSV file.")
+        sys.exit(1)
     elif os.path.isfile(args.source_file):
         csv_files = [args.source_file]
     else:
@@ -462,22 +445,27 @@ def main():
     if args.examine_only:
         logger.info("🔍 EXAMINE-ONLY MODE - No data will be ingested")
         for csv_file in csv_files:
-            csv_columns, detected_delimiter = examine_csv_structure(csv_file)
-            if csv_columns:
-                column_mapping, unmapped_columns = map_columns_to_schema(csv_columns)
-                logger.info(f"📊 Column mapping for {os.path.basename(csv_file)}:")
-                for expected_col, csv_col in column_mapping.items():
-                    if csv_col:
-                        logger.info(f"   ✓ {expected_col} ← {csv_col}")
-                    else:
-                        logger.info(f"   ✗ {expected_col} ← (empty)")
-                if unmapped_columns:
-                    logger.warning(f"   ⚠️  Unmapped columns: {unmapped_columns}")
+            csv_columns, detected_delimiter, is_headerless = examine_csv_structure(csv_file)
+            if csv_columns is None:
+                logger.error(f"❌ Could not read CSV structure from {csv_file}")
+                continue
+            column_mapping, unmapped_columns = map_columns_to_schema(csv_columns)
+            if not column_mapping:
+                logger.error(f"❌ Could not map columns for {csv_file}")
+                continue
+            logger.info(f"📊 Column mapping for {os.path.basename(csv_file)}:")
+            for expected_col, csv_col in column_mapping.items():
+                if csv_col:
+                    logger.info(f"   ✓ {expected_col} ← {csv_col}")
+                else:
+                    logger.info(f"   ✗ {expected_col} ← (empty)")
+            if unmapped_columns:
+                logger.warning(f"   ⚠️  Unmapped columns: {unmapped_columns}")
         return
     
     try:
         success, rowcount = load_nndr_properties_to_staging(
-            csv_files, batch_id, session_id, source_name, client_name, max_rows=args.max_rows
+            csv_files, batch_id, session_id, source_name, client_name, max_rows=args.max_rows, args=args
         )
         
         if success:

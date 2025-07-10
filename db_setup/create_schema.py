@@ -64,7 +64,8 @@ SQL_FILES = [
     # Street tables (staging and master)
     'street/os_open_map_local_staging.sql',
     'street/os_open_map_local.sql',
-    'street/usrn_streets.sql',
+    'street/os_open_usrn_staging.sql',
+    'street/os_open_usrn.sql',
 ]
 
 def get_sql_files_from_txt(file_path):
@@ -121,14 +122,19 @@ def main(recreate_db=False, sql_files=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified Database Schema Creation Script (SQL File Runner)")
     parser.add_argument('--recreate-db', action='store_true', help='Drop and recreate the target database before table creation')
-    parser.add_argument('--file', type=str, help='Text file listing .sql files to execute (one per line)')
+    parser.add_argument('--file', type=str, help='Text file listing .sql files to execute (one per line, default: full_schema.txt)')
     args = parser.parse_args()
 
     # Get SQL files list
     if args.file:
         sql_files = get_sql_files_from_txt(args.file)
     else:
-        sql_files = SQL_FILES
+        # Try to use full_schema.txt if it exists, otherwise fall back to hardcoded list
+        default_schema_file = os.path.join(SCHEMA_DIR, 'full_schema.txt')
+        if os.path.exists(default_schema_file):
+            sql_files = get_sql_files_from_txt(default_schema_file)
+        else:
+            sql_files = SQL_FILES
 
     # Call main with both recreate_db flag and sql_files
     main(recreate_db=args.recreate_db, sql_files=sql_files) 

@@ -1,0 +1,17 @@
+{
+  "source_path": "data/ONSPD_Online_Latest_Centroids.csv",
+  "recursive": false,
+  "file_types": ["csv"],
+  "delimiter": ",",
+  "header": true,
+  "target_table": "onspd_staging",
+  "target_columns": [
+    "pcd", "pcd2", "pcds", "dointr", "doterm", "usertype", "oseast1m", "osnrth1m", "osgrdind", "oa11", "lsoa11", "msoa11", "lat", "long", "lep1", "lep2", "pcon", "rgn", "cty", "laua", "ward", "hlthau", "nhser", "ccg", "nuts", "parish", "ced", "ua", "imd", "calncv", "source_name", "upload_user", "upload_timestamp", "batch_id", "source_file", "file_size", "file_modified", "session_id", "client_name"
+  ],
+  "source_to_target_mapping": {},
+  "metadata_values": {
+    "source_name": "ONSPD_2024",
+    "upload_user": "admin"
+  },
+  "required_fields": ["pcd", "pcds", "lat", "long"]
+} 

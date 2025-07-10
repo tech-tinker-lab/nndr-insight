@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, text
 from tqdm import tqdm
 
 # Load .env file from db_setup directory
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', 'db_setup', '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 USER = os.getenv("PGUSER")
 PASSWORD = os.getenv("PGPASSWORD")

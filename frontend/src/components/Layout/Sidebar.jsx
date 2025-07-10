@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText
+  Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -13,6 +13,7 @@ const navigation = [
   { name: 'Maps', href: '/maps', icon: Map },
   { name: 'Upload', href: '/upload', icon: Upload },
   { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Admin', href: '/admin', icon: Shield },
 ];
 
 const dataNavigation = [

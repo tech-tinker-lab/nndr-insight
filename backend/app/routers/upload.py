@@ -16,8 +16,13 @@ router = APIRouter()
 # --- End future upload endpoints ---
 
 # Database connection using environment variables
-from db.db_config import get_connection_string
-engine = create_engine(get_connection_string())
+import os
+connection_string = (
+    f"postgresql://{os.getenv('PGUSER', 'nndr')}:{os.getenv('PGPASSWORD', 'nndrpass')}@"
+    f"{os.getenv('PGHOST', 'localhost')}:{os.getenv('PGPORT', '5432')}/"
+    f"{os.getenv('PGDATABASE', 'nndr_test')}"
+)
+engine = create_engine(connection_string)
 
 def clean_for_json(records):
     for row in records:

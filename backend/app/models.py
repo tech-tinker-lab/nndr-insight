@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Column, Integer, String, Float, BigInteger, Text, Date, Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime
 
 Base = declarative_base()
 
@@ -165,3 +165,24 @@ class DatasetInfo(BaseModel):
     record_count: int
     last_updated: str
     source: str
+
+# Admin API Models for Staging to Master Migration
+class StagingMigrationRequest(BaseModel):
+    batch_id: Optional[str] = Field(None, description="Filter by batch ID")
+    source_name: Optional[str] = Field(None, description="Filter by source name")
+    session_id: Optional[str] = Field(None, description="Filter by session ID")
+
+class StagingMigrationResponse(BaseModel):
+    table_name: str
+    master_table: str
+    records_migrated: int
+    final_master_count: int
+    migration_timestamp: datetime
+    applied_filters: dict
+
+class StagingPreviewResponse(BaseModel):
+    table_name: str
+    total_count: int
+    sample_data: List[dict]
+    filter_options: dict
+    applied_filters: dict

@@ -142,6 +142,10 @@ def main():
             gdf = gdf.to_crs(epsg=27700)
             logger.info("🔁 Reprojected to EPSG:27700 (British National Grid)")
 
+        # Convert column names to lowercase to match staging table
+        logger.info("🔄 Converting column names to lowercase for staging table...")
+        gdf.columns = gdf.columns.str.lower()
+        
         # Add metadata columns
         gdf['source_name'] = source_name
         gdf['upload_user'] = USER
@@ -155,50 +159,21 @@ def main():
 
         # Step 3: Load data into staging table
         logger.info(f"📊 Loading {len(gdf)} records into {STAGING_TABLE}...")
+        logger.info(f"📋 Staging columns: {list(gdf.columns)}")
         
-        # Convert geometry to WKT for staging table
-        gdf['geometry'] = gdf['geometry'].astype(str)
+        # Use GeoPandas to_postgis for proper PostGIS geometry handling
+        logger.info("Using GeoPandas to_postgis for proper PostGIS geometry insertion...")
         
-        # Prepare data for insertion
-        data_to_insert = []
-        for _, row in gdf.iterrows():
-            data_to_insert.append((
-                row.get('LAD25CD', ''),  # lad_code
-                row.get('LAD25NM', ''),  # lad_name
-                row.get('geometry', ''),  # geometry as WKT
-                row.get('source_name', ''),
-                row.get('upload_user', ''),
-                row.get('upload_timestamp', ''),
-                row.get('batch_id', ''),
-                row.get('source_file', ''),
-                row.get('file_size', 0),
-                row.get('file_modified', ''),
-                row.get('session_id', ''),
-                row.get('client_name', '')
-            ))
+        # Upload using GeoPandas to_postgis (handles PostGIS geometry properly)
+        engine = get_engine()
+        gdf.to_postgis(
+            name=STAGING_TABLE, 
+            con=engine, 
+            if_exists='append', 
+            index=False
+        )
         
-        # Upload in chunks with progress bar
-        chunk_size = 50  # Process 50 records at a time
-        with tqdm(total=len(data_to_insert), desc="Uploading LAD boundaries") as pbar:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    for i in range(0, len(data_to_insert), chunk_size):
-                        chunk = data_to_insert[i:i + chunk_size]
-                        
-                        # Insert chunk
-                        cur.executemany("""
-                            INSERT INTO lad_boundaries_staging (
-                                lad_code, lad_name, geometry, source_name, upload_user,
-                                upload_timestamp, batch_id, source_file, file_size,
-                                file_modified, session_id, client_name
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """, chunk)
-                        
-                        # Update progress bar
-                        pbar.update(len(chunk))
-                        
-                        # Commit every chunk
-                        conn.commit()
+        logger.info(f"✅ Successfully uploaded {len(gdf)} records using GeoPandas to_postgis")
 
         # Step 4: Verify data quality
         verify_staging_data_quality(batch_id, session_id, client_name)

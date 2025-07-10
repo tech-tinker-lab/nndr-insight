@@ -9,6 +9,7 @@ import Properties from './pages/Properties';
 import Maps from './pages/Maps';
 import Upload from './pages/Upload';
 import Settings from './pages/Settings';
+import Admin from './pages/Admin';
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
             <Route path="/maps" element={<Maps />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/admin" element={<Admin />} />
           </Routes>
         </Layout>
         <Toaster 
