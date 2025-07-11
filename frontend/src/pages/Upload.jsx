@@ -973,6 +973,288 @@ export default function Upload() {
     return `${hours}h ${minutes}m ${secs}s`;
   };
 
+  // Intelligent ZIP Analyzer Component
+  const ZIPIntelligentAnalyzer = ({ zipContents, directoryStructure, file }) => {
+    const [viewMode, setViewMode] = useState('structure'); // 'structure' or 'selection'
+    const [selectedHeaderFile, setSelectedHeaderFile] = useState(null);
+    const [selectedDataFiles, setSelectedDataFiles] = useState([]);
+    const [suggestedFiles, setSuggestedFiles] = useState({ header: null, data: [] });
+
+    // Analyze ZIP contents and suggest files intelligently
+    useEffect(() => {
+      if (zipContents && zipContents.files) {
+        const suggestions = analyzeZIPContents(zipContents);
+        setSuggestedFiles(suggestions);
+        
+        // Auto-select suggested files
+        if (suggestions.header) {
+          setSelectedHeaderFile(suggestions.header);
+        }
+        if (suggestions.data.length > 0) {
+          setSelectedDataFiles(suggestions.data);
+        }
+      }
+    }, [zipContents]);
+
+    // Intelligent analysis of ZIP contents
+    const analyzeZIPContents = (contents) => {
+      const suggestions = { header: null, data: [] };
+      
+      // Find potential header files (small CSV files, README files, etc.)
+      const potentialHeaders = contents.files.filter(file => {
+        const name = file.name.toLowerCase();
+        const size = file.size;
+        
+        // Look for header indicators
+        return (
+          name.includes('header') ||
+          name.includes('schema') ||
+          name.includes('readme') ||
+          name.includes('metadata') ||
+          name.includes('description') ||
+          (name.endsWith('.csv') && size < 5000) || // Small CSV files
+          (name.endsWith('.txt') && size < 2000)    // Small text files
+        );
+      });
+
+      // Find potential data files
+      const potentialData = contents.files.filter(file => {
+        const name = file.name.toLowerCase();
+        const size = file.size;
+        
+        // Look for data indicators
+        return (
+          (name.endsWith('.csv') && size > 1000) ||
+          (name.endsWith('.json') && size > 1000) ||
+          (name.endsWith('.xml') && size > 1000) ||
+          (name.endsWith('.gml') && size > 1000) ||
+          name.includes('data') ||
+          name.includes('records') ||
+          name.includes('values')
+        );
+      });
+
+      // Suggest the best header file
+      if (potentialHeaders.length > 0) {
+        suggestions.header = potentialHeaders[0]; // Take the first one for now
+      }
+
+      // Suggest data files (limit to 5 for usability)
+      suggestions.data = potentialData.slice(0, 5);
+
+      return suggestions;
+    };
+
+    // Get file type icon
+    const getFileIcon = (fileName) => {
+      const ext = fileName.toLowerCase().split('.').pop();
+      switch (ext) {
+        case 'csv': return <FileSpreadsheet className="w-4 h-4 text-green-500" />;
+        case 'json': return <FileCode className="w-4 h-4 text-yellow-500" />;
+        case 'xml': return <FileCode className="w-4 h-4 text-blue-500" />;
+        case 'gml': return <FileCode className="w-4 h-4 text-purple-500" />;
+        case 'txt': return <FileText className="w-4 h-4 text-gray-500" />;
+        default: return <FileText className="w-4 h-4 text-gray-400" />;
+      }
+    };
+
+    // Toggle file selection
+    const toggleFileSelection = (file, type) => {
+      if (type === 'header') {
+        setSelectedHeaderFile(selectedHeaderFile?.path === file.path ? null : file);
+      } else {
+        setSelectedDataFiles(prev => {
+          const isSelected = prev.some(f => f.path === file.path);
+          if (isSelected) {
+            return prev.filter(f => f.path !== file.path);
+          } else {
+            return [...prev, file];
+          }
+        });
+      }
+    };
+
+    return (
+      <div className="text-xs">
+        {/* Header with view toggle */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-medium text-gray-700">
+            ZIP Analysis ({zipContents.totalFiles} files, {formatFileSize(zipContents.totalSize)})
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setViewMode('structure')}
+              className={`px-2 py-1 rounded text-xs ${
+                viewMode === 'structure' 
+                  ? 'bg-blue-100 text-blue-700' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              📁 Structure
+            </button>
+            <button
+              onClick={() => setViewMode('selection')}
+              className={`px-2 py-1 rounded text-xs ${
+                viewMode === 'selection' 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              🎯 Select Files
+            </button>
+          </div>
+        </div>
+
+        {/* File Groups Summary */}
+        {Object.keys(zipContents.fileGroups).length > 0 && (
+          <div className="mb-3 p-2 bg-gray-50 rounded">
+            <div className="font-medium text-gray-600 mb-1">📊 File Types Found:</div>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(zipContents.fileGroups).map(([type, files]) => (
+                <span key={type} className="px-2 py-1 bg-white border rounded text-xs">
+                  {type}: {files.length}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Directory Structure View */}
+        {viewMode === 'structure' && directoryStructure && (
+          <div className="mb-3 p-2 bg-blue-50 rounded border border-blue-200">
+            <div className="font-medium text-blue-700 mb-2">📁 Directory Structure:</div>
+            <div className="max-h-48 overflow-y-auto">
+              <DirectoryTree node={directoryStructure} />
+            </div>
+            <div className="mt-2 text-xs text-blue-600">
+              💡 Click "Select Files" to choose header and data files for processing
+            </div>
+          </div>
+        )}
+
+        {/* File Selection View */}
+        {viewMode === 'selection' && (
+          <div className="space-y-3">
+            {/* Header File Selection */}
+            <div className="p-3 bg-green-50 rounded border border-green-200">
+              <div className="font-medium text-green-700 mb-2">
+                📋 Header File Selection
+                {suggestedFiles.header && (
+                  <span className="ml-2 text-xs bg-green-200 px-2 py-1 rounded">💡 Suggested</span>
+                )}
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {zipContents.files
+                  .filter(file => 
+                    file.name.toLowerCase().includes('header') ||
+                    file.name.toLowerCase().includes('schema') ||
+                    file.name.toLowerCase().includes('readme') ||
+                    file.name.toLowerCase().endsWith('.csv') ||
+                    file.name.toLowerCase().endsWith('.txt')
+                  )
+                  .map((file, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => toggleFileSelection(file, 'header')}
+                      className={`flex items-center space-x-2 p-2 rounded cursor-pointer border ${
+                        selectedHeaderFile?.path === file.path
+                          ? 'bg-green-100 border-green-300'
+                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {getFileIcon(file.name)}
+                      <span className="flex-1 truncate">{file.path}</span>
+                      <span className="text-gray-400">({formatFileSize(file.size)})</span>
+                      {suggestedFiles.header?.path === file.path && (
+                        <span className="text-green-600 text-xs">💡</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Data Files Selection */}
+            <div className="p-3 bg-blue-50 rounded border border-blue-200">
+              <div className="font-medium text-blue-700 mb-2">
+                📊 Data Files Selection
+                {suggestedFiles.data.length > 0 && (
+                  <span className="ml-2 text-xs bg-blue-200 px-2 py-1 rounded">💡 Suggested</span>
+                )}
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {zipContents.files
+                  .filter(file => 
+                    file.name.toLowerCase().includes('data') ||
+                    file.name.toLowerCase().includes('records') ||
+                    file.name.toLowerCase().endsWith('.csv') ||
+                    file.name.toLowerCase().endsWith('.json') ||
+                    file.name.toLowerCase().endsWith('.xml') ||
+                    file.name.toLowerCase().endsWith('.gml')
+                  )
+                  .map((file, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => toggleFileSelection(file, 'data')}
+                      className={`flex items-center space-x-2 p-2 rounded cursor-pointer border ${
+                        selectedDataFiles.some(f => f.path === file.path)
+                          ? 'bg-blue-100 border-blue-300'
+                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {getFileIcon(file.name)}
+                      <span className="flex-1 truncate">{file.path}</span>
+                      <span className="text-gray-400">({formatFileSize(file.size)})</span>
+                      {suggestedFiles.data.some(f => f.path === file.path) && (
+                        <span className="text-blue-600 text-xs">💡</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Selection Summary */}
+            <div className="p-2 bg-gray-50 rounded border">
+              <div className="font-medium text-gray-700 mb-1">📋 Selection Summary:</div>
+              <div className="space-y-1">
+                <div className="text-gray-600">
+                  <span className="font-medium">Header:</span> {selectedHeaderFile ? selectedHeaderFile.path : 'None selected'}
+                </div>
+                <div className="text-gray-600">
+                  <span className="font-medium">Data Files:</span> {selectedDataFiles.length} selected
+                  {selectedDataFiles.length > 0 && (
+                    <div className="ml-4 text-xs text-gray-500">
+                      {selectedDataFiles.map(f => f.path).join(', ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex space-x-2">
+              <button
+                onClick={() => {
+                  // Process selected files
+                  console.log('Processing ZIP with:', { selectedHeaderFile, selectedDataFiles });
+                }}
+                disabled={!selectedHeaderFile && selectedDataFiles.length === 0}
+                className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                🚀 Process Selected Files
+              </button>
+              <button
+                onClick={() => setViewMode('structure')}
+                className="px-3 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
+              >
+                ← Back to Structure
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Enhanced file preview component with mapping capabilities
   const FilePreview = ({ file, getAllConfigs }) => {
     const [showMapping, setShowMapping] = useState(false);
@@ -1151,46 +1433,13 @@ export default function Upload() {
           </div>
         )}
 
-        {/* ZIP Contents */}
+        {/* ZIP Contents - Enhanced Intelligent Analysis */}
         {analysis.type === 'zip' && analysis.zipContents && (
-          <div className="text-xs">
-            <div className="font-medium text-gray-700 mb-1">
-              Contents ({analysis.zipContents.totalFiles} files, {formatFileSize(analysis.zipContents.totalSize)}):
-            </div>
-            
-            {/* File Groups Summary */}
-            {Object.keys(analysis.zipContents.fileGroups).length > 0 && (
-              <div className="mb-2">
-                <div className="font-medium text-gray-600 mb-1">File Types:</div>
-                <div className="flex flex-wrap gap-1">
-                  {Object.entries(analysis.zipContents.fileGroups).map(([type, files]) => (
-                    <span key={type} className="px-2 py-1 bg-gray-200 rounded text-xs">
-                      {type}: {files.length}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Directory Structure */}
-            {analysis.directoryStructure && (
-              <div className="mb-2">
-                <div className="font-medium text-gray-600 mb-1">Directory Structure:</div>
-                <DirectoryTree node={analysis.directoryStructure} />
-              </div>
-            )}
-            
-            {/* File List */}
-            <div className="space-y-1 max-h-32 overflow-y-auto">
-              {analysis.zipContents.files.map((item, idx) => (
-                <div key={idx} className="flex items-center space-x-2 text-gray-600">
-                  {item.icon}
-                  <span className="truncate">{item.path}</span>
-                  <span className="text-gray-400">({formatFileSize(item.size)})</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ZIPIntelligentAnalyzer 
+            zipContents={analysis.zipContents} 
+            directoryStructure={analysis.directoryStructure}
+            file={file}
+          />
         )}
 
         {/* GeoPackage Analysis */}
