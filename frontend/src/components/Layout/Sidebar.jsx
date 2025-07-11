@@ -4,6 +4,7 @@ import {
   Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useUser } from '../../context/UserContext';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
@@ -13,7 +14,8 @@ const navigation = [
   { name: 'Maps', href: '/maps', icon: Map },
   { name: 'Upload', href: '/upload', icon: Upload },
   { name: 'Settings', href: '/settings', icon: Settings },
-  { name: 'Admin', href: '/admin', icon: Shield },
+  { name: 'Staged Data', href: '/admin', icon: Shield },
+  { name: 'Master Data', href: '/master', icon: Database },
 ];
 
 const dataNavigation = [
@@ -25,6 +27,7 @@ const dataNavigation = [
 
 export default function Sidebar({ sidebarOpen, setSidebarOpen }) {
   const location = useLocation();
+  const { user } = useUser();
   return (
     <div className={clsx(
       'fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0',
@@ -47,25 +50,32 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }) {
       </div>
       <nav className="mt-6 px-3">
         <div className="space-y-1">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href;
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={clsx(
-                  'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
-                  isActive
-                    ? 'bg-blue-100 text-blue-700 border-r-2 border-blue-700'
-                    : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-                )}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <item.icon className={clsx('mr-3 h-5 w-5', isActive ? 'text-blue-700' : 'text-gray-400 group-hover:text-gray-500')} />
-                {item.name}
-              </Link>
-            );
-          })}
+          {navigation
+            .filter((item) => {
+              if (item.name === 'Staged Data') {
+                return user && ["admin", "power_user", "dataset_manager"].includes(user.role);
+              }
+              return true;
+            })
+            .map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  className={clsx(
+                    'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                    isActive
+                      ? 'bg-blue-100 text-blue-700 border-r-2 border-blue-700'
+                      : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                  )}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <item.icon className={clsx('mr-3 h-5 w-5', isActive ? 'text-blue-700' : 'text-gray-400 group-hover:text-gray-500')} />
+                  {item.name}
+                </Link>
+              );
+            })}
         </div>
         <div className="mt-8">
           <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">

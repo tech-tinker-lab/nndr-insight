@@ -41,6 +41,8 @@ SCHEMA_DIR = os.path.join(os.path.dirname(__file__), 'schemas')
 SQL_FILES = [
     '00_enable_postgis.sql',
     # Reference tables (staging and master)
+    'reference/create_migration_history.sql',
+    'reference/staging_configs.sql',
     'reference/os_open_uprn_staging.sql',
     'reference/os_open_uprn.sql',
     'reference/nndr_rating_list_staging.sql',
@@ -50,6 +52,7 @@ SQL_FILES = [
     'reference/nndr_summary_valuation_staging.sql',
     'reference/nndr_properties_staging.sql',
     'reference/lad_boundaries_staging.sql',
+    'reference/lad_boundaries.sql',
     'reference/valuations_staging.sql',
     'reference/historic_valuations_staging.sql',
     'reference/gazetteer_staging.sql',

@@ -10,35 +10,61 @@ import Maps from './pages/Maps';
 import Upload from './pages/Upload';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
+import Login from './pages/Login';
+import ProtectedRoute from './components/ProtectedRoute';
+import { AuthProvider } from './context/UserContext';
+import StagedData from './pages/StagedData';
+import MasterData from './pages/MasterData';
 
 function App() {
   return (
-    <Router>
-      <div className="App">
-        <Layout>
+    <AuthProvider>
+      <Router>
+        <div className="App">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/geospatial" element={<Geospatial />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/properties" element={<Properties />} />
-            <Route path="/maps" element={<Maps />} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/admin" element={<Admin />} />
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/geospatial" element={<Geospatial />} />
+                      <Route path="/analytics" element={<Analytics />} />
+                      <Route path="/properties" element={<Properties />} />
+                      <Route path="/maps" element={<Maps />} />
+                      <Route path="/upload" element={<Upload />} />
+                      <Route path="/settings" element={<Settings />} />
+                      <Route
+                        path="/admin"
+                        element={
+                          <ProtectedRoute allowedRoles={["admin", "power_user", "dataset_manager"]}>
+                            <Admin />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route path="/staged-data" element={<StagedData />} />
+                      <Route path="/master" element={<MasterData />} />
+                    </Routes>
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
           </Routes>
-        </Layout>
-        <Toaster 
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-          }}
-        />
-      </div>
-    </Router>
+          <Toaster 
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#363636',
+                color: '#fff',
+              },
+            }}
+          />
+        </div>
+      </Router>
+    </AuthProvider>
   );
 }
 

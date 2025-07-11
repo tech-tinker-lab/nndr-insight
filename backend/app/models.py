@@ -186,3 +186,12 @@ class StagingPreviewResponse(BaseModel):
     sample_data: List[dict]
     filter_options: dict
     applied_filters: dict
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    email = Column(String)
+    created_at = Column(String)

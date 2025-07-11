@@ -1,0 +1,2 @@
+# Drop and recreate LAD Boundaries master table only
+reference/lad_boundaries.sql 

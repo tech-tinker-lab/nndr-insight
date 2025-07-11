@@ -4,7 +4,7 @@ from typing import Optional
 import os
 
 router = APIRouter()
-from db.db_config import get_connection_string
+from app.db.db_config import get_connection_string
 engine = create_engine(get_connection_string())
 
 def get_total_count(table, where_sql, params):

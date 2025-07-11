@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, text
 from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime
 import logging
+from sqlalchemy.orm import sessionmaker, Session
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -479,3 +480,18 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error getting postcode details: {e}")
             raise 
+
+# SQLAlchemy session factory for dependency injection
+engine = create_engine(
+    f"postgresql://{os.getenv('PGUSER', 'nndr')}:{os.getenv('PGPASSWORD', 'nndrpass')}@"
+    f"{os.getenv('PGHOST', 'localhost')}:{os.getenv('PGPORT', '5432')}/"
+    f"{os.getenv('PGDATABASE', 'nndr_test')}"
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close() 

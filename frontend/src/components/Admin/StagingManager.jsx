@@ -1,7 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../api/axios';
+import { useUser } from '../../context/UserContext';
+
+const HISTORY_PAGE_SIZE = 25;
+
+const EVENT_STATUS_LABELS = {
+  success: 'Migration',
+  error: 'Migration Error',
+  upload: 'Upload',
+  deleted: 'Delete',
+  purged: 'Purge',
+  purged_master: 'Master Purge',
+};
 
 const StagingManager = () => {
+  const { token } = useUser();
   const [stagingTables, setStagingTables] = useState([]);
   const [selectedTable, setSelectedTable] = useState('');
   const [tableSummary, setTableSummary] = useState(null);
@@ -24,6 +37,12 @@ const StagingManager = () => {
     offset: 0
   });
 
+  const [history, setHistory] = useState([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFilters, setHistoryFilters] = useState({ staging_table: '', migrated_by: '', status: '' });
+
   const API_BASE = 'http://localhost:8000/api/admin';
 
   // Load staging tables on component mount
@@ -42,7 +61,7 @@ const StagingManager = () => {
   const loadStagingTables = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE}/staging/tables`);
+      const response = await api.get(`${API_BASE}/staging/tables`);
       setStagingTables(response.data.staging_tables);
     } catch (error) {
       console.error('Error loading staging tables:', error);
@@ -54,7 +73,7 @@ const StagingManager = () => {
 
   const loadTableSummary = async (tableName) => {
     try {
-      const response = await axios.get(`${API_BASE}/staging/summary/${tableName}`);
+      const response = await api.get(`${API_BASE}/staging/summary/${tableName}`);
       setTableSummary(response.data);
     } catch (error) {
       console.error('Error loading table summary:', error);
@@ -76,7 +95,7 @@ const StagingManager = () => {
         }
       });
 
-      const response = await axios.get(`${API_BASE}/staging/preview/${tableName}`, { params });
+      const response = await api.get(`${API_BASE}/staging/preview/${tableName}`, { params });
       setPreviewData(response.data);
       setFilterOptions(response.data.filter_options);
     } catch (error) {
@@ -117,7 +136,10 @@ const StagingManager = () => {
         }
       });
 
-      const response = await axios.post(`${API_BASE}/staging/migrate/${selectedTable}`, migrationRequest);
+      const response = await api.post(
+        `${API_BASE}/staging/migrate/${selectedTable}`,
+        migrationRequest
+      );
       setMigrationResult(response.data);
       alert(`Migration completed! ${response.data.records_migrated} records migrated.`);
       
@@ -139,6 +161,36 @@ const StagingManager = () => {
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString();
+  };
+
+  // Fetch migration/upload/delete/purge history
+  const fetchHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const params = {
+        limit: HISTORY_PAGE_SIZE,
+        offset: (historyPage - 1) * HISTORY_PAGE_SIZE,
+        ...Object.fromEntries(Object.entries(historyFilters).filter(([k, v]) => v))
+      };
+      const res = await api.get('/api/admin/staging/migration_history', { params });
+      setHistory(res.data.history || []);
+      setHistoryTotal(res.data.total || 0);
+    } catch (err) {
+      setHistory([]);
+      setHistoryTotal(0);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+    // eslint-disable-next-line
+  }, [historyPage, historyFilters]);
+
+  const handleHistoryFilterChange = (field, value) => {
+    setHistoryFilters((prev) => ({ ...prev, [field]: value }));
+    setHistoryPage(1);
   };
 
   return (
@@ -256,13 +308,43 @@ const StagingManager = () => {
                     : 'No filters applied - will migrate all records'}
                 </p>
               </div>
-              <button
-                onClick={handleMigration}
-                disabled={migrationLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-md font-medium transition-colors"
-              >
-                {migrationLoading ? 'Migrating...' : 'Migrate to Master'}
-              </button>
+              <div className="flex gap-4">
+                <button
+                  onClick={handleMigration}
+                  disabled={migrationLoading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-md font-medium transition-colors"
+                >
+                  {migrationLoading ? 'Migrating...' : 'Migrate to Master'}
+                </button>
+                <button
+                  className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-md font-medium transition-colors"
+                  disabled={loading || !selectedTable || !Object.keys(filters).some(f => filters[f])}
+                  title="Delete all data matching the current filters from this staging table"
+                  onClick={async () => {
+                    if (!selectedTable) return;
+                    const filterPayload = {};
+                    Object.keys(filters).forEach(f => {
+                      if (filters[f]) filterPayload[f] = filters[f];
+                    });
+                    if (Object.keys(filterPayload).length === 0) {
+                      alert("Please set at least one filter to delete data.");
+                      return;
+                    }
+                    if (!window.confirm("Are you sure you want to delete all data matching these filters from this staging table? This cannot be undone.")) return;
+                    try {
+                      const res = await api.delete(`/api/admin/staging/delete/${selectedTable}`, { data: filterPayload });
+                      alert(`Deleted ${res.data.rows_deleted} rows from ${selectedTable}`);
+                      loadTableSummary(selectedTable);
+                      loadPreviewData(selectedTable);
+                      setFilters({ batch_id: '', source_name: '', session_id: '' });
+                    } catch (err) {
+                      alert(err.response?.data?.detail || "Failed to delete data");
+                    }
+                  }}
+                >
+                  Delete Filtered Data
+                </button>
+              </div>
             </div>
           </div>
 
@@ -360,6 +442,123 @@ const StagingManager = () => {
                 No data found with the current filters
               </div>
             )}
+          </div>
+
+          {/* Migration/Upload/Delete/Purge History */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4">History (Upload, Migration, Delete, Purge)</h2>
+            {/* Filters */}
+            <div className="flex flex-wrap gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Staging Table</label>
+                <select
+                  value={historyFilters.staging_table}
+                  onChange={e => handleHistoryFilterChange('staging_table', e.target.value)}
+                  className="p-2 border border-gray-300 rounded-md"
+                >
+                  <option value="">All</option>
+                  {stagingTables.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
+                <input
+                  type="text"
+                  value={historyFilters.migrated_by}
+                  onChange={e => handleHistoryFilterChange('migrated_by', e.target.value)}
+                  className="p-2 border border-gray-300 rounded-md"
+                  placeholder="Username"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
+                <select
+                  value={historyFilters.status}
+                  onChange={e => handleHistoryFilterChange('status', e.target.value)}
+                  className="p-2 border border-gray-300 rounded-md"
+                >
+                  <option value="">All</option>
+                  <option value="upload">Upload</option>
+                  <option value="success">Migration</option>
+                  <option value="error">Migration Error</option>
+                  <option value="deleted">Delete</option>
+                  <option value="purged">Purge</option>
+                  <option value="purged_master">Master Purge</option>
+                </select>
+              </div>
+            </div>
+            {/* Table */}
+            {historyLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-2 text-gray-600">Loading history...</p>
+              </div>
+            ) : history.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Event</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Staging Table</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Master Table</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Records</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {history.map((row, idx) => (
+                      <tr key={row.id || idx} className={row.status === "error" ? "bg-red-50" : "hover:bg-gray-50"}>
+                        <td className="px-4 py-2 text-sm font-semibold">{EVENT_STATUS_LABELS[row.status] || row.status}</td>
+                        <td className="px-4 py-2 text-sm">{row.staging_table || '-'}</td>
+                        <td className="px-4 py-2 text-sm">{row.master_table || '-'}</td>
+                        <td className="px-4 py-2 text-sm">{row.migrated_by || '-'}</td>
+                        <td className="px-4 py-2 text-xs max-w-xs truncate" title={row.filters ? JSON.stringify(row.filters) : ''}>
+                          {row.status === 'upload' && row.filters?.filename ? (
+                            <span>File: <span className="font-mono">{row.filters.filename}</span></span>
+                          ) : row.status === 'deleted' && row.filters ? (
+                            <span>Filters: {Object.entries(row.filters).map(([k, v]) => `${k}: ${v}`).join(', ')}</span>
+                          ) : row.filters ? (
+                            <span>{JSON.stringify(row.filters)}</span>
+                          ) : '-'}
+                        </td>
+                        <td className="px-4 py-2 text-sm">{row.records_migrated ?? '-'}</td>
+                        <td className="px-4 py-2 text-sm">{row.migration_timestamp ? new Date(row.migration_timestamp).toLocaleString() : ''}</td>
+                        <td className={"px-4 py-2 text-sm font-semibold " + (row.status === "error" ? "text-red-600" : row.status === "success" ? "text-green-700" : "text-gray-700")}>{EVENT_STATUS_LABELS[row.status] || row.status}</td>
+                        <td className="px-4 py-2 text-xs text-red-700 max-w-xs truncate" title={row.error_message}>{row.error_message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">No history found</div>
+            )}
+            {/* Pagination */}
+            <div className="flex items-center justify-between mt-4">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setHistoryPage(Math.max(1, historyPage - 1))}
+                  disabled={historyPage === 1}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setHistoryPage(historyPage + 1)}
+                  disabled={historyPage * HISTORY_PAGE_SIZE >= historyTotal}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+              <div className="text-sm text-gray-600">
+                Page {historyPage} of {Math.ceil(historyTotal / HISTORY_PAGE_SIZE)}
+              </div>
+            </div>
           </div>
         </>
       )}
