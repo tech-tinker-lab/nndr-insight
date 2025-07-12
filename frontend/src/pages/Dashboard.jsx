@@ -13,7 +13,7 @@ import {
   Upload
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import axios from 'axios';
+import api from '../api/axios';
 import toast from 'react-hot-toast';
 
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -31,8 +31,8 @@ export default function Dashboard() {
     try {
       setLoading(true);
       const [statsResponse, coverageResponse] = await Promise.all([
-        axios.get(`${API_BASE_URL}/geospatial/statistics`),
-        axios.get(`${API_BASE_URL}/analytics/coverage`)
+        api.get(`${API_BASE_URL}/geospatial/statistics`),
+        api.get(`${API_BASE_URL}/analytics/coverage`)
       ]);
 
       setStats({

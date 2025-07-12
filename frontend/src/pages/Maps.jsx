@@ -18,7 +18,7 @@ import {
   Info,
   Crosshair
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../api/axios';
 import toast from 'react-hot-toast';
 
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -63,7 +63,7 @@ export default function Maps() {
       setError(null);
       
       // Fetch initial map data
-      const response = await axios.get(`${API_BASE_URL}/geospatial/boundaries`);
+      const response = await api.get(`${API_BASE_URL}/geospatial/boundaries`);
       setMapData(response.data);
     } catch (err) {
       console.error('Error fetching map data:', err);
@@ -80,7 +80,7 @@ export default function Maps() {
 
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/geospatial/geocode?q=${encodeURIComponent(searchQuery)}`);
+      const response = await api.get(`${API_BASE_URL}/geospatial/geocode?q=${encodeURIComponent(searchQuery)}`);
       
       if (response.data.results && response.data.results.length > 0) {
         const location = response.data.results[0];
@@ -107,7 +107,7 @@ export default function Maps() {
 
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/geospatial/spatial-query`, {
+      const response = await api.get(`${API_BASE_URL}/geospatial/spatial-query`, {
         params: {
           lat: spatialQuery.latitude,
           lon: spatialQuery.longitude,

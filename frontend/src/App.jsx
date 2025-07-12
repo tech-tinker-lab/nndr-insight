@@ -16,6 +16,7 @@ import { AuthProvider } from './context/UserContext';
 import StagedData from './pages/StagedData';
 import MasterData from './pages/MasterData';
 import DesignSystem from './pages/DesignSystem';
+import DatasetPipeline from './pages/DatasetPipeline';
 
 function App() {
   return (
@@ -48,6 +49,7 @@ function App() {
                       <Route path="/staged-data" element={<StagedData />} />
                       <Route path="/master" element={<MasterData />} />
                       <Route path="/design-system" element={<DesignSystem />} />
+                      <Route path="/dataset-pipeline" element={<DatasetPipeline />} />
                     </Routes>
                   </Layout>
                 </ProtectedRoute>

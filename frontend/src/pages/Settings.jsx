@@ -21,7 +21,7 @@ import {
   BellOff,
   BellRing
 } from 'lucide-react';
-import axios from 'axios';
+
 import toast from 'react-hot-toast';
 
 const API_BASE_URL = 'http://localhost:8000/api';

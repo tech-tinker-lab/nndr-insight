@@ -19,7 +19,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../api/axios';
 import toast from 'react-hot-toast';
 
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -54,7 +54,7 @@ export default function Properties() {
       params.append('limit', '50'); // Get more properties per page
       params.append('skip', '0');
 
-      const response = await axios.get(`${API_BASE_URL}/properties?${params}`);
+      const response = await api.get(`${API_BASE_URL}/properties?${params}`);
       setProperties(response.data.items || []);
     } catch (err) {
       console.error('Error fetching properties:', err);

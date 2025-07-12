@@ -710,3 +710,561 @@ def log_audit_event(db: Session, audit_log: AuditLog):
     except Exception as e:
         logger.error(f"Error logging audit event: {str(e)}")
         # Don't fail the main operation if audit logging fails 
+
+# Dataset Pipeline Management
+@router.post("/datasets")
+async def create_dataset(
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    Create a new dataset with pipeline configuration
+    """
+    try:
+        dataset_name = request.get("dataset_name")
+        description = request.get("description", "")
+        source_type = request.get("source_type", "file")  # file, api, database
+        pipeline_config = request.get("pipeline_config", {})
+        business_owner = request.get("business_owner", "")
+        data_steward = request.get("data_steward", "")
+        
+        if not dataset_name:
+            raise HTTPException(status_code=400, detail="Dataset name is required")
+        
+        # Generate dataset ID
+        dataset_id = str(uuid.uuid4())
+        
+        # Create dataset record
+        dataset_query = text("""
+            INSERT INTO design.datasets (
+                dataset_id, dataset_name, description, source_type, pipeline_config,
+                business_owner, data_steward, created_by, created_at, status, version
+            ) VALUES (
+                :dataset_id, :dataset_name, :description, :source_type, :pipeline_config,
+                :business_owner, :data_steward, :created_by, :created_at, 'draft', 1
+            )
+        """)
+        
+        db.execute(dataset_query, {
+            "dataset_id": dataset_id,
+            "dataset_name": dataset_name,
+            "description": description,
+            "source_type": source_type,
+            "pipeline_config": json.dumps(pipeline_config),
+            "business_owner": business_owner,
+            "data_steward": data_steward,
+            "created_by": user.id,
+            "created_at": datetime.utcnow()
+        })
+        
+        # Log audit event
+        audit_log = AuditLog(
+            user_id=str(user.id),
+            action="CREATE",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "dataset_name": dataset_name,
+                "source_type": source_type,
+                "business_owner": business_owner,
+                "data_steward": data_steward
+            }
+        )
+        
+        log_audit_event(db, audit_log)
+        
+        db.commit()
+        
+        return {
+            "dataset_id": dataset_id,
+            "dataset_name": dataset_name,
+            "status": "draft",
+            "message": "Dataset created successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating dataset: {str(e)}")
+
+@router.get("/datasets")
+async def list_datasets(
+    status: Optional[str] = Query(None),
+    source_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    List datasets with filtering and search
+    """
+    try:
+        query = """
+            SELECT dataset_id, dataset_name, description, source_type, pipeline_config,
+                   business_owner, data_steward, created_by, created_at, status, version,
+                   updated_at, is_active
+            FROM design.datasets
+            WHERE is_active = true
+        """
+        params = {}
+        
+        if status:
+            query += " AND status = :status"
+            params["status"] = status
+            
+        if source_type:
+            query += " AND source_type = :source_type"
+            params["source_type"] = source_type
+            
+        if search:
+            query += " AND (dataset_name ILIKE :search OR description ILIKE :search OR business_owner ILIKE :search)"
+            params["search"] = f"%{search}%"
+        
+        query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+        params["limit"] = limit
+        params["offset"] = offset
+        
+        result = db.execute(text(query), params)
+        datasets = []
+        
+        for row in result.fetchall():
+            datasets.append({
+                "dataset_id": row[0],
+                "dataset_name": row[1],
+                "description": row[2],
+                "source_type": row[3],
+                "pipeline_config": json.loads(row[4]) if row[4] else {},
+                "business_owner": row[5],
+                "data_steward": row[6],
+                "created_by": row[7],
+                "created_at": row[8].isoformat() if row[8] else None,
+                "status": row[9],
+                "version": row[10],
+                "updated_at": row[11].isoformat() if row[11] else None,
+                "is_active": row[12]
+            })
+        
+        return {
+            "datasets": datasets,
+            "total": len(datasets),
+            "limit": limit,
+            "offset": offset
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing datasets: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing datasets: {str(e)}")
+
+@router.get("/datasets/{dataset_id}")
+async def get_dataset(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    Get dataset details by ID
+    """
+    try:
+        query = text("""
+            SELECT dataset_id, dataset_name, description, source_type, pipeline_config,
+                   business_owner, data_steward, created_by, created_at, status, version,
+                   updated_at, is_active
+            FROM design.datasets
+            WHERE dataset_id = :dataset_id AND is_active = true
+        """)
+        
+        result = db.execute(query, {"dataset_id": dataset_id})
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        dataset = {
+            "dataset_id": row[0],
+            "dataset_name": row[1],
+            "description": row[2],
+            "source_type": row[3],
+            "pipeline_config": json.loads(row[4]) if row[4] else {},
+            "business_owner": row[5],
+            "data_steward": row[6],
+            "created_by": row[7],
+            "created_at": row[8].isoformat() if row[8] else None,
+            "status": row[9],
+            "version": row[10],
+            "updated_at": row[11].isoformat() if row[11] else None,
+            "is_active": row[12]
+        }
+        
+        return dataset
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting dataset: {str(e)}")
+
+@router.post("/datasets/{dataset_id}/pipeline")
+async def create_pipeline_stage(
+    dataset_id: str,
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    Create a new pipeline stage for a dataset
+    """
+    try:
+        stage_name = request.get("stage_name")
+        stage_type = request.get("stage_type")  # upload, staging, filtered, final
+        stage_config = request.get("stage_config", {})
+        validation_rules = request.get("validation_rules", [])
+        approval_required = request.get("approval_required", False)
+        approvers = request.get("approvers", [])
+        
+        if not stage_name or not stage_type:
+            raise HTTPException(status_code=400, detail="Stage name and type are required")
+        
+        # Validate stage type
+        valid_stages = ["upload", "staging", "filtered", "final", "custom"]
+        if stage_type not in valid_stages:
+            raise HTTPException(status_code=400, detail=f"Invalid stage type. Must be one of: {valid_stages}")
+        
+        # Generate stage ID
+        stage_id = str(uuid.uuid4())
+        
+        # Create pipeline stage
+        stage_query = text("""
+            INSERT INTO design.pipeline_stages (
+                stage_id, dataset_id, stage_name, stage_type, stage_config,
+                validation_rules, approval_required, approvers, created_by, created_at,
+                status, sequence_order
+            ) VALUES (
+                :stage_id, :dataset_id, :stage_name, :stage_type, :stage_config,
+                :validation_rules, :approval_required, :approvers, :created_by, :created_at,
+                'active', (SELECT COALESCE(MAX(sequence_order), 0) + 1 FROM design.pipeline_stages WHERE dataset_id = :dataset_id)
+            )
+        """)
+        
+        db.execute(stage_query, {
+            "stage_id": stage_id,
+            "dataset_id": dataset_id,
+            "stage_name": stage_name,
+            "stage_type": stage_type,
+            "stage_config": json.dumps(stage_config),
+            "validation_rules": json.dumps(validation_rules),
+            "approval_required": approval_required,
+            "approvers": json.dumps(approvers),
+            "created_by": user.id,
+            "created_at": datetime.utcnow()
+        })
+        
+        # Log audit event
+        audit_log = AuditLog(
+            user_id=str(user.id),
+            action="CREATE_STAGE",
+            resource_type="pipeline_stage",
+            resource_id=stage_id,
+            details={
+                "dataset_id": dataset_id,
+                "stage_name": stage_name,
+                "stage_type": stage_type,
+                "approval_required": approval_required
+            }
+        )
+        
+        log_audit_event(db, audit_log)
+        
+        db.commit()
+        
+        return {
+            "stage_id": stage_id,
+            "stage_name": stage_name,
+            "stage_type": stage_type,
+            "message": "Pipeline stage created successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating pipeline stage: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating pipeline stage: {str(e)}")
+
+@router.get("/datasets/{dataset_id}/pipeline")
+async def get_dataset_pipeline(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    Get pipeline stages for a dataset
+    """
+    try:
+        query = text("""
+            SELECT stage_id, stage_name, stage_type, stage_config, validation_rules,
+                   approval_required, approvers, created_by, created_at, status,
+                   sequence_order, updated_at
+            FROM design.pipeline_stages
+            WHERE dataset_id = :dataset_id AND status = 'active'
+            ORDER BY sequence_order ASC
+        """)
+        
+        result = db.execute(query, {"dataset_id": dataset_id})
+        stages = []
+        
+        for row in result.fetchall():
+            stages.append({
+                "stage_id": row[0],
+                "stage_name": row[1],
+                "stage_type": row[2],
+                "stage_config": json.loads(row[3]) if row[3] else {},
+                "validation_rules": json.loads(row[4]) if row[4] else [],
+                "approval_required": row[5],
+                "approvers": json.loads(row[6]) if row[6] else [],
+                "created_by": row[7],
+                "created_at": row[8].isoformat() if row[8] else None,
+                "status": row[9],
+                "sequence_order": row[10],
+                "updated_at": row[11].isoformat() if row[11] else None
+            })
+        
+        return {
+            "dataset_id": dataset_id,
+            "stages": stages,
+            "total_stages": len(stages)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting dataset pipeline: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting dataset pipeline: {str(e)}")
+
+@router.post("/datasets/{dataset_id}/upload")
+async def upload_dataset_file(
+    dataset_id: str,
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    Upload a file for dataset processing
+    """
+    try:
+        file_name = request.get("file_name")
+        file_size = request.get("file_size")
+        file_type = request.get("file_type")
+        file_path = request.get("file_path")
+        metadata = request.get("metadata", {})
+        
+        if not file_name or not file_path:
+            raise HTTPException(status_code=400, detail="File name and path are required")
+        
+        # Generate upload ID
+        upload_id = str(uuid.uuid4())
+        
+        # Create upload record
+        upload_query = text("""
+            INSERT INTO design.dataset_uploads (
+                upload_id, dataset_id, file_name, file_size, file_type, file_path,
+                metadata, uploaded_by, uploaded_at, status, current_stage
+            ) VALUES (
+                :upload_id, :dataset_id, :file_name, :file_size, :file_type, :file_path,
+                :metadata, :uploaded_by, :uploaded_at, 'uploaded', 'upload'
+            )
+        """)
+        
+        db.execute(upload_query, {
+            "upload_id": upload_id,
+            "dataset_id": dataset_id,
+            "file_name": file_name,
+            "file_size": file_size,
+            "file_type": file_type,
+            "file_path": file_path,
+            "metadata": json.dumps(metadata),
+            "uploaded_by": user.id,
+            "uploaded_at": datetime.utcnow()
+        })
+        
+        # Log audit event
+        audit_log = AuditLog(
+            user_id=str(user.id),
+            action="UPLOAD",
+            resource_type="dataset_upload",
+            resource_id=upload_id,
+            details={
+                "dataset_id": dataset_id,
+                "file_name": file_name,
+                "file_size": file_size,
+                "file_type": file_type
+            }
+        )
+        
+        log_audit_event(db, audit_log)
+        
+        db.commit()
+        
+        return {
+            "upload_id": upload_id,
+            "dataset_id": dataset_id,
+            "file_name": file_name,
+            "status": "uploaded",
+            "current_stage": "upload",
+            "message": "File uploaded successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error uploading dataset file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error uploading dataset file: {str(e)}")
+
+@router.post("/uploads/{upload_id}/approve")
+async def approve_upload_stage(
+    upload_id: str,
+    request: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_power)
+):
+    """
+    Approve a dataset upload for the next stage
+    """
+    try:
+        approval_notes = request.get("approval_notes", "")
+        next_stage = request.get("next_stage")
+        
+        # Get current upload status
+        upload_query = text("""
+            SELECT u.upload_id, u.dataset_id, u.current_stage, u.status,
+                   p.approval_required, p.approvers
+            FROM design.dataset_uploads u
+            LEFT JOIN design.pipeline_stages p ON u.dataset_id = p.dataset_id AND u.current_stage = p.stage_type
+            WHERE u.upload_id = :upload_id
+        """)
+        
+        result = db.execute(upload_query, {"upload_id": upload_id})
+        upload = result.fetchone()
+        
+        if not upload:
+            raise HTTPException(status_code=404, detail="Upload not found")
+        
+        approval_required = bool(upload[4]) if upload[4] is not None else False
+        if approval_required:
+            # Check if user is in approvers list
+            approvers = json.loads(upload[5]) if upload[5] else []
+            if str(user.id) not in approvers and user.role != "admin":
+                raise HTTPException(status_code=403, detail="Not authorized to approve this upload")
+        
+        # Update upload status
+        update_query = text("""
+            UPDATE design.dataset_uploads
+            SET status = 'approved', current_stage = :next_stage, approved_by = :approved_by,
+                approved_at = :approved_at, approval_notes = :approval_notes
+            WHERE upload_id = :upload_id
+        """)
+        
+        db.execute(update_query, {
+            "next_stage": next_stage,
+            "approved_by": user.id,
+            "approved_at": datetime.utcnow(),
+            "approval_notes": approval_notes,
+            "upload_id": upload_id
+        })
+        
+        # Log audit event
+        audit_log = AuditLog(
+            user_id=str(user.id),
+            action="APPROVE",
+            resource_type="dataset_upload",
+            resource_id=upload_id,
+            details={
+                "dataset_id": upload[1],
+                "current_stage": upload[2],
+                "next_stage": next_stage,
+                "approval_notes": approval_notes
+            }
+        )
+        
+        log_audit_event(db, audit_log)
+        
+        db.commit()
+        
+        return {
+            "upload_id": upload_id,
+            "status": "approved",
+            "current_stage": next_stage,
+            "approved_by": user.id,
+            "message": "Upload approved successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error approving upload: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error approving upload: {str(e)}")
+
+@router.get("/uploads")
+async def list_dataset_uploads(
+    dataset_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user)
+):
+    """
+    List dataset uploads with filtering
+    """
+    try:
+        query = """
+            SELECT upload_id, dataset_id, file_name, file_size, file_type,
+                   uploaded_by, uploaded_at, status, current_stage, approved_by,
+                   approved_at, approval_notes
+            FROM design.dataset_uploads
+            WHERE 1=1
+        """
+        params = {}
+        
+        if dataset_id:
+            query += " AND dataset_id = :dataset_id"
+            params["dataset_id"] = dataset_id
+            
+        if status:
+            query += " AND status = :status"
+            params["status"] = status
+            
+        if stage:
+            query += " AND current_stage = :stage"
+            params["stage"] = stage
+        
+        query += " ORDER BY uploaded_at DESC LIMIT :limit OFFSET :offset"
+        params["limit"] = limit
+        params["offset"] = offset
+        
+        result = db.execute(text(query), params)
+        uploads = []
+        
+        for row in result.fetchall():
+            uploads.append({
+                "upload_id": row[0],
+                "dataset_id": row[1],
+                "file_name": row[2],
+                "file_size": row[3],
+                "file_type": row[4],
+                "uploaded_by": row[5],
+                "uploaded_at": row[6].isoformat() if row[6] else None,
+                "status": row[7],
+                "current_stage": row[8],
+                "approved_by": row[9],
+                "approved_at": row[10].isoformat() if row[10] else None,
+                "approval_notes": row[11]
+            })
+        
+        return {
+            "uploads": uploads,
+            "total": len(uploads),
+            "limit": limit,
+            "offset": offset
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing uploads: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing uploads: {str(e)}") 

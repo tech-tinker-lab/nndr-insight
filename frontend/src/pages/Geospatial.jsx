@@ -10,7 +10,7 @@ import {
   Eye,
   Map
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../api/axios';
 import toast from 'react-hot-toast';
 import InteractiveMap from '../components/Map/InteractiveMap';
 import SimpleInteractiveMap from '../components/Map/SimpleInteractiveMap';
@@ -84,7 +84,7 @@ export default function Geospatial() {
     setLoading(true);
     try {
       console.log('Starting geocoding search...');
-      const response = await axios.post(`${API_BASE_URL}/geospatial/geocode`, {
+      const response = await api.post(`${API_BASE_URL}/geospatial/geocode`, {
         query: geocodeQuery,
         limit: geocodeLimit
       });
@@ -118,7 +118,7 @@ export default function Geospatial() {
       }
       searchData.limit = searchLimit;
 
-      const response = await axios.post(`${API_BASE_URL}/geospatial/search`, searchData);
+      const response = await api.post(`${API_BASE_URL}/geospatial/search`, searchData);
       console.log('Property search results:', response.data);
       setResults(response.data);
       toast.success(`Found ${response.data.total_found} results`);
@@ -139,7 +139,7 @@ export default function Geospatial() {
     setLoading(true);
     try {
       console.log('Starting spatial query...');
-      const response = await axios.post(`${API_BASE_URL}/geospatial/spatial`, {
+      const response = await api.post(`${API_BASE_URL}/geospatial/spatial`, {
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
         radius_meters: radius,

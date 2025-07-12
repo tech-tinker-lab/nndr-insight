@@ -1,0 +1,4 @@
+# Staging Configuration Management Schema
+# This file contains the SQL files needed for staging configuration management
+create_staging_schema.sql
+design/02_create_dataset_pipeline_schema.sql 

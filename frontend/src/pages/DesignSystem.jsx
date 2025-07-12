@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/axios';
 import {
   Container,
   Grid,
@@ -93,9 +93,9 @@ const DesignSystem = () => {
     setLoading(true);
     try {
       const [designsRes, configsRes, auditRes] = await Promise.all([
-        axios.get('/api/design/tables'),
-        axios.get('/api/design/configs'),
-        axios.get('/api/design/audit')
+        api.get('/api/design/tables'),
+        api.get('/api/design/configs'),
+        api.get('/api/design/audit')
       ]);
 
       setDesigns(designsRes.data.designs || []);
@@ -142,10 +142,10 @@ const DesignSystem = () => {
   const saveDesign = async () => {
     try {
       if (editingDesign) {
-        await axios.put(`/api/design/tables/${editingDesign.design_id}`, designForm);
+        await api.put(`/api/design/tables/${editingDesign.design_id}`, designForm);
         showMessage('Design updated successfully', 'success');
       } else {
-        await axios.post('/api/design/tables', designForm);
+        await api.post('/api/design/tables', designForm);
         showMessage('Design created successfully', 'success');
       }
       setDesignDialogOpen(false);
@@ -182,10 +182,10 @@ const DesignSystem = () => {
   const saveConfig = async () => {
     try {
       if (editingConfig) {
-        await axios.put(`/api/design/configs/${editingConfig.config_id}`, configForm);
+        await api.put(`/api/design/configs/${editingConfig.config_id}`, configForm);
         showMessage('Configuration updated successfully', 'success');
       } else {
-        await axios.post('/api/design/configs', configForm);
+        await api.post('/api/design/configs', configForm);
         showMessage('Configuration created successfully', 'success');
       }
       setConfigDialogOpen(false);

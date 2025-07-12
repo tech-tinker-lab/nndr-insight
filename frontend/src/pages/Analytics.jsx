@@ -26,7 +26,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import axios from 'axios';
+import api from '../api/axios';
 import toast from 'react-hot-toast';
 
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -45,10 +45,10 @@ export default function Analytics() {
     try {
       setLoading(true);
       const [coverageResponse, densityResponse, regionsResponse, postcodeResponse] = await Promise.all([
-        axios.get(`${API_BASE_URL}/analytics/coverage`),
-        axios.get(`${API_BASE_URL}/analytics/density`),
-        axios.get(`${API_BASE_URL}/analytics/regions`),
-        axios.get(`${API_BASE_URL}/analytics/postcode-analysis`)
+        api.get(`${API_BASE_URL}/analytics/coverage`),
+        api.get(`${API_BASE_URL}/analytics/density`),
+        api.get(`${API_BASE_URL}/analytics/regions`),
+        api.get(`${API_BASE_URL}/analytics/postcode-analysis`)
       ]);
 
       setAnalyticsData({
