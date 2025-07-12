@@ -1,0 +1,6 @@
+# Enhanced Design System Execution File
+# This file lists the SQL files to execute for the enhanced design system
+# Used by create_schema.py script
+
+# Design System Schema Files (in execution order)
+design/03_create_enhanced_design_system.sql 

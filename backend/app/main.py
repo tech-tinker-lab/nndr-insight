@@ -5,7 +5,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 # FastAPI entry point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import upload, forecast, map, property_compare, tables, geospatial, analytics, admin, admin_user, ai_analysis, design_system
+from app.routers import upload, forecast, map, property_compare, tables, geospatial, analytics, admin, admin_user, ai_analysis, design_system, design_enhanced
 
 app = FastAPI()
 
@@ -29,6 +29,7 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(admin_user.router, prefix="/api")
 app.include_router(ai_analysis.router)
 app.include_router(design_system.router, prefix="/api")
+app.include_router(design_enhanced.router)
 
 @app.get("/")
 def read_root():

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Upload as UploadIcon, 
   FileText, 
@@ -1729,7 +1729,16 @@ export default function Upload() {
         {selectedFile?.id === file.id && (
           <div className="mt-3 p-2 bg-white rounded border text-xs">
             {analysis.preview?.type === 'csv' && csvPreview && (
-              <CSVTablePreview preview={csvPreview} delimiter={csvDelimiter} />
+              <CSVTablePreview 
+                preview={csvPreview} 
+                delimiter={csvDelimiter} 
+                file={file}
+                onCreatePipeline={(config) => {
+                  console.log('Pipeline created:', config);
+                  // You can add additional logic here, like navigating to the Design System
+                  toast.success('Pipeline created! You can now manage it in the Design System.');
+                }}
+              />
             )}
 
             {analysis.preview?.type === 'json' && (
@@ -1786,8 +1795,13 @@ export default function Upload() {
     );
   };
 
-  // CSV Table Preview Component
-  const CSVTablePreview = ({ preview, delimiter }) => {
+  // Enhanced CSV Table Preview Component with Column Mapping
+  const CSVTablePreview = ({ preview, delimiter, file, onCreatePipeline }) => {
+    const [columnMappings, setColumnMappings] = useState({});
+    const [aiSuggestions, setAiSuggestions] = useState({});
+    const [showMappingOptions, setShowMappingOptions] = useState(false);
+    const [creatingPipeline, setCreatingPipeline] = useState(false);
+
     const getDelimiterDisplay = (delim) => {
       switch (delim) {
         case '\t': return 'Tab';
@@ -1796,18 +1810,237 @@ export default function Upload() {
       }
     };
 
+    // Field type options for dropdowns
+    const fieldTypeOptions = [
+      { value: 'TEXT', label: 'Text', description: 'General text data' },
+      { value: 'VARCHAR(255)', label: 'Varchar(255)', description: 'Short text up to 255 characters' },
+      { value: 'VARCHAR(500)', label: 'Varchar(500)', description: 'Medium text up to 500 characters' },
+      { value: 'INTEGER', label: 'Integer', description: 'Whole numbers' },
+      { value: 'BIGINT', label: 'Big Integer', description: 'Large whole numbers' },
+      { value: 'DECIMAL(10,2)', label: 'Decimal(10,2)', description: 'Numbers with 2 decimal places' },
+      { value: 'DECIMAL(12,2)', label: 'Decimal(12,2)', description: 'Currency amounts' },
+      { value: 'DATE', label: 'Date', description: 'Date values' },
+      { value: 'TIMESTAMP', label: 'Timestamp', description: 'Date and time values' },
+      { value: 'BOOLEAN', label: 'Boolean', description: 'True/False values' },
+      { value: 'JSONB', label: 'JSONB', description: 'JSON data' },
+      { value: 'GEOMETRY', label: 'Geometry', description: 'Spatial data' },
+      { value: 'UUID', label: 'UUID', description: 'Unique identifiers' }
+    ];
+
+    // AI field type detection based on data patterns
+    const detectFieldType = (columnName, columnData) => {
+      const name = columnName.toLowerCase();
+      const sampleValues = columnData.slice(0, 10).filter(val => val && val.trim() !== '');
+      
+      // Check for common patterns
+      if (name.includes('id') || name.includes('uprn') || name.includes('code')) {
+        return 'BIGINT';
+      }
+      if (name.includes('postcode') || name.includes('pcd')) {
+        return 'VARCHAR(10)';
+      }
+      if (name.includes('date') || name.includes('time')) {
+        return 'DATE';
+      }
+      if (name.includes('amount') || name.includes('value') || name.includes('price') || name.includes('rate')) {
+        return 'DECIMAL(12,2)';
+      }
+      if (name.includes('lat') || name.includes('long') || name.includes('x') || name.includes('y')) {
+        return 'DECIMAL(10,6)';
+      }
+      if (name.includes('active') || name.includes('enabled') || name.includes('flag')) {
+        return 'BOOLEAN';
+      }
+      if (name.includes('geometry') || name.includes('geom') || name.includes('shape')) {
+        return 'GEOMETRY';
+      }
+      
+      // Analyze sample values
+      if (sampleValues.length > 0) {
+        const firstValue = sampleValues[0];
+        
+        // Check if it's numeric
+        if (!isNaN(firstValue) && firstValue !== '') {
+          if (firstValue.includes('.')) {
+            return 'DECIMAL(10,2)';
+          } else {
+            return 'INTEGER';
+          }
+        }
+        
+        // Check if it's a date
+        if (firstValue.match(/^\d{4}-\d{2}-\d{2}/) || firstValue.match(/^\d{2}\/\d{2}\/\d{4}/)) {
+          return 'DATE';
+        }
+        
+        // Check if it's a postcode
+        if (firstValue.match(/^[A-Z]{1,2}[0-9][0-9A-Z]?\s?[0-9][A-Z]{2}$/i)) {
+          return 'VARCHAR(10)';
+        }
+        
+        // Check if it's boolean-like
+        if (['true', 'false', 'yes', 'no', '1', '0'].includes(firstValue.toLowerCase())) {
+          return 'BOOLEAN';
+        }
+      }
+      
+      // Default based on content length
+      const maxLength = Math.max(...sampleValues.map(v => v ? v.length : 0));
+      if (maxLength > 255) {
+        return 'TEXT';
+      } else if (maxLength > 100) {
+        return 'VARCHAR(500)';
+      } else {
+        return 'VARCHAR(255)';
+      }
+    };
+
+    // Initialize column mappings with AI suggestions
+    useEffect(() => {
+      if (preview.headers && preview.data.length > 0) {
+        const initialMappings = {};
+        const suggestions = {};
+        
+        preview.headers.forEach((header, index) => {
+          const columnData = preview.data.map(row => row[index]);
+          const suggestedType = detectFieldType(header, columnData);
+          
+          initialMappings[header] = suggestedType;
+          suggestions[header] = {
+            type: suggestedType,
+            confidence: 0.85, // Would be calculated by AI
+            reasoning: `Detected as ${suggestedType} based on column name and sample data`
+          };
+        });
+        
+        setColumnMappings(initialMappings);
+        setAiSuggestions(suggestions);
+      }
+    }, [preview]);
+
+    // Create pipeline with staging table
+    const handleCreatePipeline = async () => {
+      if (!file || !preview.headers) return;
+      
+      setCreatingPipeline(true);
+      try {
+        // Create staging table configuration
+        const stagingConfig = {
+          table_name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
+          schema_name: "staging",
+          columns: preview.headers.map(header => ({
+            name: header,
+            type: columnMappings[header] || 'TEXT',
+            required: false,
+            primary_key: false,
+            unique: false
+          })),
+          metadata: {
+            created_from: 'ai_analysis',
+            ai_suggestions: aiSuggestions,
+            confidence_score: 0.85,
+            governing_body: 'Auto-detected',
+            data_standard: 'Auto-detected',
+            source_file: file.name
+          }
+        };
+
+        // Call the backend to create the staging table
+        const response = await api.post('/api/admin/staging/create-table', stagingConfig);
+        
+        if (response.data.success) {
+          toast.success('Pipeline created successfully! Staging table ready for data mapping.');
+          if (onCreatePipeline) {
+            onCreatePipeline(stagingConfig);
+          }
+        } else {
+          toast.error('Failed to create pipeline: ' + response.data.error);
+        }
+      } catch (error) {
+        console.error('Error creating pipeline:', error);
+        toast.error('Failed to create pipeline: ' + error.message);
+      } finally {
+        setCreatingPipeline(false);
+      }
+    };
+
     return (
       <div>
-        <div className="font-medium mb-2">
-          CSV Preview (Delimiter: {getDelimiterDisplay(delimiter)}) • {preview.data.length} rows
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-medium">
+            CSV Preview (Delimiter: {getDelimiterDisplay(delimiter)}) • {preview.data.length} rows
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowMappingOptions(!showMappingOptions)}
+              className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+            >
+              {showMappingOptions ? 'Hide' : 'Show'} Column Mapping
+            </button>
+            <button
+              onClick={handleCreatePipeline}
+              disabled={creatingPipeline}
+              className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center space-x-1"
+            >
+              {creatingPipeline ? (
+                <>
+                  <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Creating...</span>
+                </>
+              ) : (
+                <>
+                  <span>Create Pipeline</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* Column Mapping Options */}
+        {showMappingOptions && (
+          <div className="mb-3 p-3 bg-blue-50 rounded border">
+            <div className="text-xs font-medium text-blue-800 mb-2">Column Field Type Mapping (AI Suggested)</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {preview.headers.map((header, idx) => (
+                <div key={idx} className="flex flex-col space-y-1">
+                  <label className="text-xs font-medium text-gray-700">{header}</label>
+                  <select
+                    value={columnMappings[header] || 'TEXT'}
+                    onChange={(e) => setColumnMappings(prev => ({ ...prev, [header]: e.target.value }))}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                  >
+                    {fieldTypeOptions.map(option => (
+                      <option key={option.value} value={option.value} title={option.description}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {aiSuggestions[header] && (
+                    <div className="text-xs text-blue-600">
+                      AI: {aiSuggestions[header].type} ({Math.round(aiSuggestions[header].confidence * 100)}%)
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Data Table */}
         <div className="overflow-x-auto max-h-64">
           <table className="min-w-full text-xs border border-gray-300">
             <thead className="bg-gray-100">
               <tr>
                 {preview.headers.map((header, idx) => (
                   <th key={idx} className="border border-gray-300 px-2 py-1 text-left font-medium">
-                    {header}
+                    <div className="flex flex-col">
+                      <span>{header}</span>
+                      {showMappingOptions && (
+                        <span className="text-xs text-blue-600 font-normal">
+                          {columnMappings[header] || 'TEXT'}
+                        </span>
+                      )}
+                    </div>
                   </th>
                 ))}
               </tr>
@@ -1833,8 +2066,6 @@ export default function Upload() {
       </div>
     );
   };
-
-
 
     // Calculate similarity score between current file and a saved config
     const calculateSimilarityScore = (currentHeaders, savedConfig) => {

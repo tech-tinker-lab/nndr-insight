@@ -10,3 +10,5 @@ psycopg2-binary
 fiona
 geoalchemy2
 python-dotenv
+chardet>=5.0.0
+PyYAML>=6.0

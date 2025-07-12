@@ -16,6 +16,7 @@ import { AuthProvider } from './context/UserContext';
 import StagedData from './pages/StagedData';
 import MasterData from './pages/MasterData';
 import DesignSystem from './pages/DesignSystem';
+import DesignSystemEnhanced from './pages/DesignSystemEnhanced';
 import DatasetPipeline from './pages/DatasetPipeline';
 
 function App() {
@@ -49,6 +50,7 @@ function App() {
                       <Route path="/staged-data" element={<StagedData />} />
                       <Route path="/master" element={<MasterData />} />
                       <Route path="/design-system" element={<DesignSystem />} />
+                      <Route path="/design-system-enhanced" element={<DesignSystemEnhanced />} />
                       <Route path="/dataset-pipeline" element={<DatasetPipeline />} />
                     </Routes>
                   </Layout>

@@ -1,4 +1,7 @@
 # Staging Configuration Management Schema
 # This file contains the SQL files needed for staging configuration management
+# Drop existing schemas first for clean setup
+design/00_drop_enhanced_schemas.sql
 create_staging_schema.sql
-design/02_create_dataset_pipeline_schema.sql 
+design/02_create_dataset_pipeline_schema.sql
+design/03_create_enhanced_design_system.sql 

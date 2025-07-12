@@ -185,43 +185,43 @@ INSERT INTO design.datasets (
 -- Insert sample pipeline stages
 INSERT INTO design.pipeline_stages (
     dataset_id, stage_name, stage_type, approval_required, approvers, created_by, sequence_order
-) 
-SELECT 
+)
+SELECT
     d.dataset_id,
     'File Upload',
     'upload',
     false,
-    '[]',
+    '[]'::jsonb,
     'admin',
     1
 FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
 UNION ALL
-SELECT 
+SELECT
     d.dataset_id,
     'Staging Validation',
     'staging',
     true,
-    '["admin", "power_user"]',
+    '["admin", "power_user"]'::jsonb,
     'admin',
     2
 FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
 UNION ALL
-SELECT 
+SELECT
     d.dataset_id,
     'Business Rules Check',
     'filtered',
     true,
-    '["admin"]',
+    '["admin"]'::jsonb,
     'admin',
     3
 FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
 UNION ALL
-SELECT 
+SELECT
     d.dataset_id,
     'Production Ready',
     'final',
     true,
-    '["admin"]',
+    '["admin"]'::jsonb,
     'admin',
     4
 FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
@@ -279,7 +279,7 @@ LEFT JOIN design.pipeline_stages ps ON du.dataset_id = ps.dataset_id AND du.curr
 WHERE d.is_active = true
 ORDER BY du.uploaded_at DESC;
 
--- Grant permissions
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA design TO authenticated;
-GRANT SELECT ON design.dataset_pipeline_summary TO authenticated;
-GRANT SELECT ON design.upload_pipeline_status TO authenticated; 
+-- Grant permissions (commented out - role may not exist)
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA design TO authenticated;
+-- GRANT SELECT ON design.dataset_pipeline_summary TO authenticated;
+-- GRANT SELECT ON design.upload_pipeline_status TO authenticated; 

@@ -173,12 +173,12 @@ class AIDataAnalyzer {
       console.warn('AI field type detection failed, using fallback:', error);
     }
 
-    // Fallback: Basic type detection
-    return this.basicTypeDetection(content);
+    // Enhanced fallback: Advanced type detection with government data patterns
+    return this.enhancedTypeDetection(content);
   }
 
-  // Basic type detection fallback
-  basicTypeDetection(content) {
+  // Enhanced type detection with government data patterns
+  enhancedTypeDetection(content) {
     const lines = content.split('\n').slice(0, 50);
     if (lines.length < 2) return [];
 
@@ -191,14 +191,200 @@ class AIDataAnalyzer {
         return parts[i] ? parts[i].trim() : '';
       }).filter(v => v);
 
+      const header = headers[i];
+      const detectedType = this.enhancedInferType(header, values);
+      
       types.push({
-        column: headers[i],
-        type: this.inferType(values),
-        confidence: 0.7
+        column: header,
+        type: detectedType.type,
+        confidence: detectedType.confidence,
+        reasoning: detectedType.reasoning,
+        suggestions: detectedType.suggestions
       });
     }
 
     return types;
+  }
+
+  // Enhanced type inference with government data patterns
+  enhancedInferType(header, values) {
+    const headerLower = header.toLowerCase();
+    const sampleValues = values.slice(0, 10).filter(v => v && v.trim() !== '');
+    
+    // Government data patterns
+    const governmentPatterns = {
+      // UPRN (Unique Property Reference Number) - 12 digits
+      uprn: {
+        pattern: /^\d{12}$/,
+        type: 'BIGINT',
+        confidence: 0.95,
+        reasoning: '12-digit numeric identifier matching UPRN format'
+      },
+      // USRN (Unique Street Reference Number) - 8 digits
+      usrn: {
+        pattern: /^\d{8}$/,
+        type: 'BIGINT',
+        confidence: 0.95,
+        reasoning: '8-digit numeric identifier matching USRN format'
+      },
+      // Postcodes
+      postcode: {
+        pattern: /^[A-Z]{1,2}[0-9][0-9A-Z]?\s?[0-9][A-Z]{2}$/i,
+        type: 'VARCHAR(10)',
+        confidence: 0.9,
+        reasoning: 'UK postcode format detected'
+      },
+      // Dates
+      date: {
+        patterns: [
+          /^\d{4}-\d{2}-\d{2}$/, // ISO format
+          /^\d{1,2}\/\d{1,2}\/\d{4}$/, // UK format
+          /^\d{1,2}-\d{1,2}-\d{4}$/ // Alternative format
+        ],
+        type: 'DATE',
+        confidence: 0.85,
+        reasoning: 'Date format detected'
+      },
+      // Currency amounts
+      currency: {
+        pattern: /^£?\d+\.?\d*$/,
+        type: 'DECIMAL(12,2)',
+        confidence: 0.9,
+        reasoning: 'Currency amount format detected'
+      },
+      // Percentages
+      percentage: {
+        pattern: /^\d+\.?\d*%?$/,
+        type: 'DECIMAL(5,2)',
+        confidence: 0.85,
+        reasoning: 'Percentage format detected'
+      },
+      // Coordinates
+      coordinates: {
+        patterns: [
+          /^-?\d+\.\d{6}$/, // Decimal degrees
+          /^-?\d+\.\d{4}$/  // Less precise coordinates
+        ],
+        type: 'DECIMAL(10,6)',
+        confidence: 0.9,
+        reasoning: 'Coordinate format detected'
+      },
+      // Boolean values
+      boolean: {
+        pattern: /^(true|false|yes|no|1|0|y|n)$/i,
+        type: 'BOOLEAN',
+        confidence: 0.8,
+        reasoning: 'Boolean-like values detected'
+      },
+      // Email addresses
+      email: {
+        pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+        type: 'VARCHAR(255)',
+        confidence: 0.9,
+        reasoning: 'Email format detected'
+      },
+      // Phone numbers
+      phone: {
+        pattern: /^[\d\s\-\(\)\+]+$/,
+        type: 'VARCHAR(20)',
+        confidence: 0.8,
+        reasoning: 'Phone number format detected'
+      }
+    };
+
+    // Check for government data field names
+    const governmentKeywords = {
+      'uprn': { type: 'BIGINT', confidence: 0.9, reasoning: 'UPRN field name detected' },
+      'usrn': { type: 'BIGINT', confidence: 0.9, reasoning: 'USRN field name detected' },
+      'toid': { type: 'BIGINT', confidence: 0.9, reasoning: 'TOID field name detected' },
+      'postcode': { type: 'VARCHAR(10)', confidence: 0.9, reasoning: 'Postcode field name detected' },
+      'pcd': { type: 'VARCHAR(10)', confidence: 0.9, reasoning: 'Postcode field name detected' },
+      'date': { type: 'DATE', confidence: 0.8, reasoning: 'Date field name detected' },
+      'amount': { type: 'DECIMAL(12,2)', confidence: 0.8, reasoning: 'Amount field name detected' },
+      'value': { type: 'DECIMAL(12,2)', confidence: 0.8, reasoning: 'Value field name detected' },
+      'price': { type: 'DECIMAL(12,2)', confidence: 0.8, reasoning: 'Price field name detected' },
+      'rate': { type: 'DECIMAL(12,2)', confidence: 0.8, reasoning: 'Rate field name detected' },
+      'lat': { type: 'DECIMAL(10,6)', confidence: 0.9, reasoning: 'Latitude field name detected' },
+      'long': { type: 'DECIMAL(10,6)', confidence: 0.9, reasoning: 'Longitude field name detected' },
+      'x': { type: 'DECIMAL(10,6)', confidence: 0.8, reasoning: 'X coordinate field name detected' },
+      'y': { type: 'DECIMAL(10,6)', confidence: 0.8, reasoning: 'Y coordinate field name detected' },
+      'geometry': { type: 'GEOMETRY', confidence: 0.9, reasoning: 'Geometry field name detected' },
+      'geom': { type: 'GEOMETRY', confidence: 0.9, reasoning: 'Geometry field name detected' },
+      'active': { type: 'BOOLEAN', confidence: 0.8, reasoning: 'Boolean field name detected' },
+      'enabled': { type: 'BOOLEAN', confidence: 0.8, reasoning: 'Boolean field name detected' },
+      'flag': { type: 'BOOLEAN', confidence: 0.8, reasoning: 'Boolean field name detected' }
+    };
+
+    // First check field name patterns
+    for (const [keyword, config] of Object.entries(governmentKeywords)) {
+      if (headerLower.includes(keyword)) {
+        return {
+          type: config.type,
+          confidence: config.confidence,
+          reasoning: config.reasoning,
+          suggestions: [`Field name suggests ${config.type} type`]
+        };
+      }
+    }
+
+    // Then check value patterns
+    if (sampleValues.length > 0) {
+      for (const [patternName, patternConfig] of Object.entries(governmentPatterns)) {
+        const patterns = Array.isArray(patternConfig.patterns) ? patternConfig.patterns : [patternConfig.pattern];
+        
+        for (const pattern of patterns) {
+          const matches = sampleValues.filter(v => pattern.test(v)).length;
+          const matchRate = matches / sampleValues.length;
+          
+          if (matchRate > 0.7) {
+            return {
+              type: patternConfig.type,
+              confidence: patternConfig.confidence * matchRate,
+              reasoning: patternConfig.reasoning,
+              suggestions: [`${Math.round(matchRate * 100)}% of sample values match ${patternName} pattern`]
+            };
+          }
+        }
+      }
+    }
+
+    // Fallback to basic type detection
+    const basicType = this.inferType(values);
+    const maxLength = Math.max(...values.map(v => v ? v.length : 0));
+    
+    let type = 'TEXT';
+    let confidence = 0.6;
+    let reasoning = 'Basic type inference';
+    let suggestions = [];
+
+    if (basicType === 'number') {
+      if (values.some(v => v && v.includes('.'))) {
+        type = 'DECIMAL(10,2)';
+        reasoning = 'Decimal numbers detected';
+      } else {
+        type = 'INTEGER';
+        reasoning = 'Integer numbers detected';
+      }
+      confidence = 0.8;
+    } else if (basicType === 'boolean') {
+      type = 'BOOLEAN';
+      confidence = 0.8;
+      reasoning = 'Boolean values detected';
+    } else if (maxLength > 255) {
+      type = 'TEXT';
+      confidence = 0.7;
+      reasoning = 'Long text content detected';
+    } else if (maxLength > 100) {
+      type = 'VARCHAR(500)';
+      confidence = 0.7;
+      reasoning = 'Medium text content detected';
+    } else {
+      type = 'VARCHAR(255)';
+      confidence = 0.7;
+      reasoning = 'Short text content detected';
+    }
+
+    return { type, confidence, reasoning, suggestions };
   }
 
   // Infer data type from values

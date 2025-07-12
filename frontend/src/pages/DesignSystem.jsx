@@ -31,7 +31,14 @@ import {
   Switch,
   FormControlLabel,
   Alert,
-  Snackbar
+  Snackbar,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  List,
+  ListItem,
+  ListItemText,
+  Divider
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -40,49 +47,78 @@ import {
   Visibility as ViewIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
-  ArrowForward as ArrowForwardIcon
+  ArrowForward as ArrowForwardIcon,
+  ExpandMore as ExpandMoreIcon,
+  LocationOn as LocationIcon,
+  Code as CodeIcon,
+  TableChart as TableIcon
 } from '@mui/icons-material';
 
 const DesignSystem = () => {
   const [activeTab, setActiveTab] = useState(0);
-  const [designs, setDesigns] = useState([]);
-  const [configs, setConfigs] = useState([]);
-  const [auditLogs, setAuditLogs] = useState([]);
+  const [structures, setStructures] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [uploads, setUploads] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [severity, setSeverity] = useState('info');
 
-  // Design Dialog State
-  const [designDialogOpen, setDesignDialogOpen] = useState(false);
-  const [editingDesign, setEditingDesign] = useState(null);
-  const [designForm, setDesignForm] = useState({
-    design_name: '',
-    table_name: '',
+  // Structure Dialog State
+  const [structureDialogOpen, setStructureDialogOpen] = useState(false);
+  const [editingStructure, setEditingStructure] = useState(null);
+  const [structureForm, setStructureForm] = useState({
+    dataset_name: '',
     description: '',
-    table_type: 'custom',
-    category: 'general',
-    columns: []
+    source_type: 'file',
+    file_formats: [],
+    governing_body: '',
+    data_standards: [],
+    business_owner: '',
+    data_steward: '',
+    tags: []
   });
 
-  // Config Dialog State
-  const [configDialogOpen, setConfigDialogOpen] = useState(false);
-  const [editingConfig, setEditingConfig] = useState(null);
-  const [configForm, setConfigForm] = useState({
-    config_name: '',
-    design_id: '',
-    source_patterns: [],
-    mapping_rules: [],
-    priority: 1
+  // Field Dialog State
+  const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
+  const [editingField, setEditingField] = useState(null);
+  const [currentStructureId, setCurrentStructureId] = useState(null);
+  const [fieldForm, setFieldForm] = useState({
+    field_name: '',
+    field_type: 'text',
+    postgis_type: '',
+    srid: 4326,
+    field_length: null,
+    field_precision: null,
+    field_scale: null,
+    is_required: false,
+    is_primary_key: false,
+    is_unique: false,
+    has_index: false,
+    default_value: '',
+    description: '',
+    sequence_order: 1
   });
 
-  // Column Editor State
-  const [columnDialogOpen, setColumnDialogOpen] = useState(false);
-  const [editingColumn, setEditingColumn] = useState(null);
-  const [columnForm, setColumnForm] = useState({
-    name: '',
-    type: 'text',
-    description: '',
-    is_required: false
+  // Template Dialog State
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [templateForm, setTemplateForm] = useState({
+    template_name: '',
+    template_type: 'staging',
+    structure_id: '',
+    table_name_pattern: '',
+    schema_name: 'public',
+    include_audit_fields: true,
+    include_source_tracking: true,
+    include_processing_metadata: true,
+    postgis_enabled: false
+  });
+
+  // Table Generation State
+  const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [generationForm, setGenerationForm] = useState({
+    table_name: ''
   });
 
   useEffect(() => {
@@ -92,15 +128,15 @@ const DesignSystem = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [designsRes, configsRes, auditRes] = await Promise.all([
-        api.get('/api/design/tables'),
-        api.get('/api/design/configs'),
-        api.get('/api/design/audit')
+      const [structuresRes, templatesRes, uploadsRes] = await Promise.all([
+        api.get('/api/design-enhanced/structures'),
+        api.get('/api/design-enhanced/templates'),
+        api.get('/api/design-enhanced/dashboard/overview')
       ]);
 
-      setDesigns(designsRes.data.designs || []);
-      setConfigs(configsRes.data.configs || []);
-      setAuditLogs(auditRes.data.logs || []);
+      setStructures(structuresRes.data.structures || []);
+      setTemplates(templatesRes.data.templates || []);
+      setUploads(uploadsRes.data.recent_uploads || []);
     } catch (error) {
       showMessage('Error loading data: ' + error.message, 'error');
     } finally {
@@ -113,369 +149,458 @@ const DesignSystem = () => {
     setSeverity(sev);
   };
 
-  // Design Management
-  const openDesignDialog = (design = null) => {
-    if (design) {
-      setEditingDesign(design);
-      setDesignForm({
-        design_name: design.design_name,
-        table_name: design.table_name,
-        description: design.description,
-        table_type: design.table_type,
-        category: design.category,
-        columns: design.columns || []
+  // Structure Management
+  const openStructureDialog = (structure = null) => {
+    if (structure) {
+      setEditingStructure(structure);
+      setStructureForm({
+        dataset_name: structure.dataset_name,
+        description: structure.description,
+        source_type: structure.source_type,
+        file_formats: structure.file_formats || [],
+        governing_body: structure.governing_body,
+        data_standards: structure.data_standards || [],
+        business_owner: structure.business_owner,
+        data_steward: structure.data_steward,
+        tags: structure.tags || []
       });
     } else {
-      setEditingDesign(null);
-      setDesignForm({
-        design_name: '',
-        table_name: '',
+      setEditingStructure(null);
+      setStructureForm({
+        dataset_name: '',
         description: '',
-        table_type: 'custom',
-        category: 'general',
-        columns: []
+        source_type: 'file',
+        file_formats: [],
+        governing_body: '',
+        data_standards: [],
+        business_owner: '',
+        data_steward: '',
+        tags: []
       });
     }
-    setDesignDialogOpen(true);
+    setStructureDialogOpen(true);
   };
 
-  const saveDesign = async () => {
+  const saveStructure = async () => {
     try {
-      if (editingDesign) {
-        await api.put(`/api/design/tables/${editingDesign.design_id}`, designForm);
-        showMessage('Design updated successfully', 'success');
+      if (editingStructure) {
+        await api.put(`/api/design-enhanced/structures/${editingStructure.structure_id}`, structureForm);
+        showMessage('Dataset structure updated successfully', 'success');
       } else {
-        await api.post('/api/design/tables', designForm);
-        showMessage('Design created successfully', 'success');
+        await api.post('/api/design-enhanced/structures', structureForm);
+        showMessage('Dataset structure created successfully', 'success');
       }
-      setDesignDialogOpen(false);
+      setStructureDialogOpen(false);
       loadData();
     } catch (error) {
-      showMessage('Error saving design: ' + error.message, 'error');
+      showMessage('Error saving dataset structure: ' + error.message, 'error');
     }
   };
 
-  // Config Management
-  const openConfigDialog = (config = null) => {
-    if (config) {
-      setEditingConfig(config);
-      setConfigForm({
-        config_name: config.config_name,
-        design_id: config.design_id,
-        source_patterns: config.source_patterns || [],
-        mapping_rules: config.mapping_rules || [],
-        priority: config.priority
+  // Field Management
+  const openFieldDialog = (structureId, field = null) => {
+    setCurrentStructureId(structureId);
+    if (field) {
+      setEditingField(field);
+      setFieldForm({
+        field_name: field.field_name,
+        field_type: field.field_type,
+        postgis_type: field.postgis_type || '',
+        srid: field.srid || 4326,
+        field_length: field.field_length,
+        field_precision: field.field_precision,
+        field_scale: field.field_scale,
+        is_required: field.is_required,
+        is_primary_key: field.is_primary_key,
+        is_unique: field.is_unique,
+        has_index: field.has_index,
+        default_value: field.default_value || '',
+        description: field.description || '',
+        sequence_order: field.sequence_order
       });
     } else {
-      setEditingConfig(null);
-      setConfigForm({
-        config_name: '',
-        design_id: '',
-        source_patterns: [],
-        mapping_rules: [],
-        priority: 1
+      setEditingField(null);
+      setFieldForm({
+        field_name: '',
+        field_type: 'text',
+        postgis_type: '',
+        srid: 4326,
+        field_length: null,
+        field_precision: null,
+        field_scale: null,
+        is_required: false,
+        is_primary_key: false,
+        is_unique: false,
+        has_index: false,
+        default_value: '',
+        description: '',
+        sequence_order: 1
       });
     }
-    setConfigDialogOpen(true);
+    setFieldDialogOpen(true);
   };
 
-  const saveConfig = async () => {
+  const saveField = async () => {
     try {
-      if (editingConfig) {
-        await api.put(`/api/design/configs/${editingConfig.config_id}`, configForm);
-        showMessage('Configuration updated successfully', 'success');
+      if (editingField) {
+        await api.put(`/api/design-enhanced/structures/${currentStructureId}/fields/${editingField.field_id}`, fieldForm);
+        showMessage('Field definition updated successfully', 'success');
       } else {
-        await api.post('/api/design/configs', configForm);
-        showMessage('Configuration created successfully', 'success');
+        await api.post(`/api/design-enhanced/structures/${currentStructureId}/fields`, fieldForm);
+        showMessage('Field definition created successfully', 'success');
       }
-      setConfigDialogOpen(false);
+      setFieldDialogOpen(false);
       loadData();
     } catch (error) {
-      showMessage('Error saving configuration: ' + error.message, 'error');
+      showMessage('Error saving field definition: ' + error.message, 'error');
     }
   };
 
-  // Column Management
-  const openColumnDialog = (column = null, index = -1) => {
-    if (column) {
-      setEditingColumn({ ...column, index });
-      setColumnForm({
-        name: column.name,
-        type: column.type,
-        description: column.description,
-        is_required: column.is_required
+  // Template Management
+  const openTemplateDialog = (template = null) => {
+    if (template) {
+      setEditingTemplate(template);
+      setTemplateForm({
+        template_name: template.template_name,
+        template_type: template.template_type,
+        structure_id: template.structure_id,
+        table_name_pattern: template.table_name_pattern,
+        schema_name: template.schema_name,
+        include_audit_fields: template.include_audit_fields,
+        include_source_tracking: template.include_source_tracking,
+        include_processing_metadata: template.include_processing_metadata,
+        postgis_enabled: template.postgis_enabled
       });
     } else {
-      setEditingColumn(null);
-      setColumnForm({
-        name: '',
-        type: 'text',
-        description: '',
-        is_required: false
+      setEditingTemplate(null);
+      setTemplateForm({
+        template_name: '',
+        template_type: 'staging',
+        structure_id: '',
+        table_name_pattern: '',
+        schema_name: 'public',
+        include_audit_fields: true,
+        include_source_tracking: true,
+        include_processing_metadata: true,
+        postgis_enabled: false
       });
     }
-    setColumnDialogOpen(true);
+    setTemplateDialogOpen(true);
   };
 
-  const saveColumn = () => {
-    const newColumn = { ...columnForm };
-    
-    if (editingColumn && editingColumn.index >= 0) {
-      // Update existing column
-      const newColumns = [...designForm.columns];
-      newColumns[editingColumn.index] = newColumn;
-      setDesignForm({ ...designForm, columns: newColumns });
-    } else {
-      // Add new column
-      setDesignForm({
-        ...designForm,
-        columns: [...designForm.columns, newColumn]
-      });
+  const saveTemplate = async () => {
+    try {
+      if (editingTemplate) {
+        await api.put(`/api/design-enhanced/templates/${editingTemplate.template_id}`, templateForm);
+        showMessage('Table template updated successfully', 'success');
+      } else {
+        await api.post('/api/design-enhanced/templates', templateForm);
+        showMessage('Table template created successfully', 'success');
+      }
+      setTemplateDialogOpen(false);
+      loadData();
+    } catch (error) {
+      showMessage('Error saving table template: ' + error.message, 'error');
     }
-    
-    setColumnDialogOpen(false);
   };
 
-  const deleteColumn = (index) => {
-    const newColumns = designForm.columns.filter((_, i) => i !== index);
-    setDesignForm({ ...designForm, columns: newColumns });
+  // Table Generation
+  const openGenerationDialog = (template) => {
+    setSelectedTemplate(template);
+    setGenerationForm({
+      table_name: template.table_name_pattern?.replace('{dataset_name}', template.dataset_name) || ''
+    });
+    setGenerationDialogOpen(true);
   };
 
-  const getDataTypeColor = (type) => {
+  const generateTable = async () => {
+    try {
+      const response = await api.post(`/api/design-enhanced/templates/${selectedTemplate.template_id}/generate`, generationForm);
+      showMessage('Table generated successfully', 'success');
+      setGenerationDialogOpen(false);
+      // You could show the DDL script in a dialog here
+      console.log('Generated DDL:', response.data.ddl_script);
+    } catch (error) {
+      showMessage('Error generating table: ' + error.message, 'error');
+    }
+  };
+
+  const getFieldTypeColor = (type) => {
     const colors = {
-      text: 'primary',
-      integer: 'secondary',
-      numeric: 'success',
-      boolean: 'warning',
-      date: 'info'
+      'text': '#1976d2',
+      'varchar': '#1976d2',
+      'integer': '#2e7d32',
+      'bigint': '#2e7d32',
+      'numeric': '#ed6c02',
+      'decimal': '#ed6c02',
+      'boolean': '#9c27b0',
+      'date': '#d32f2f',
+      'timestamp': '#d32f2f',
+      'geometry': '#7b1fa2',
+      'geography': '#7b1fa2',
+      'jsonb': '#f57c00'
     };
-    return colors[type] || 'default';
+    return colors[type] || '#666';
   };
 
-  const renderDesignDialog = () => (
-    <Dialog open={designDialogOpen} onClose={() => setDesignDialogOpen(false)} maxWidth="md" fullWidth>
+  const renderStructureDialog = () => (
+    <Dialog open={structureDialogOpen} onClose={() => setStructureDialogOpen(false)} maxWidth="md" fullWidth>
       <DialogTitle>
-        {editingDesign ? 'Edit Table Design' : 'Create New Table Design'}
+        {editingStructure ? 'Edit Dataset Structure' : 'Create Dataset Structure'}
       </DialogTitle>
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 1 }}>
           <Grid item xs={12} md={6}>
             <TextField
               fullWidth
-              label="Design Name"
-              value={designForm.design_name}
-              onChange={(e) => setDesignForm({ ...designForm, design_name: e.target.value })}
-              margin="normal"
+              label="Dataset Name"
+              value={structureForm.dataset_name}
+              onChange={(e) => setStructureForm({...structureForm, dataset_name: e.target.value})}
+              required
             />
           </Grid>
           <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              label="Table Name"
-              value={designForm.table_name}
-              onChange={(e) => setDesignForm({ ...designForm, table_name: e.target.value })}
-              margin="normal"
-            />
+            <FormControl fullWidth>
+              <InputLabel>Source Type</InputLabel>
+              <Select
+                value={structureForm.source_type}
+                onChange={(e) => setStructureForm({...structureForm, source_type: e.target.value})}
+                label="Source Type"
+              >
+                <MenuItem value="file">File</MenuItem>
+                <MenuItem value="api">API</MenuItem>
+                <MenuItem value="database">Database</MenuItem>
+                <MenuItem value="stream">Stream</MenuItem>
+              </Select>
+            </FormControl>
           </Grid>
           <Grid item xs={12}>
             <TextField
               fullWidth
-              label="Description"
-              value={designForm.description}
-              onChange={(e) => setDesignForm({ ...designForm, description: e.target.value })}
-              margin="normal"
               multiline
               rows={3}
+              label="Description"
+              value={structureForm.description}
+              onChange={(e) => setStructureForm({...structureForm, description: e.target.value})}
             />
           </Grid>
           <Grid item xs={12} md={6}>
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Table Type</InputLabel>
-              <Select
-                value={designForm.table_type}
-                onChange={(e) => setDesignForm({ ...designForm, table_type: e.target.value })}
-              >
-                <MenuItem value="custom">Custom</MenuItem>
-                <MenuItem value="address">Address</MenuItem>
-                <MenuItem value="property">Property</MenuItem>
-                <MenuItem value="postcode">Postcode</MenuItem>
-                <MenuItem value="boundary">Boundary</MenuItem>
-                <MenuItem value="business">Business</MenuItem>
-              </Select>
-            </FormControl>
+            <TextField
+              fullWidth
+              label="Governing Body"
+              value={structureForm.governing_body}
+              onChange={(e) => setStructureForm({...structureForm, governing_body: e.target.value})}
+            />
           </Grid>
           <Grid item xs={12} md={6}>
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Category</InputLabel>
-              <Select
-                value={designForm.category}
-                onChange={(e) => setDesignForm({ ...designForm, category: e.target.value })}
-              >
-                <MenuItem value="general">General</MenuItem>
-                <MenuItem value="business">Business</MenuItem>
-                <MenuItem value="government">Government</MenuItem>
-                <MenuItem value="address">Address</MenuItem>
-              </Select>
-            </FormControl>
+            <TextField
+              fullWidth
+              label="Business Owner"
+              value={structureForm.business_owner}
+              onChange={(e) => setStructureForm({...structureForm, business_owner: e.target.value})}
+            />
           </Grid>
-          
-          {/* Columns Section */}
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">Columns</Typography>
-              <Button
-                startIcon={<AddIcon />}
-                onClick={() => openColumnDialog()}
-                variant="outlined"
-                size="small"
-              >
-                Add Column
-              </Button>
-            </Box>
-            
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Description</TableCell>
-                    <TableCell>Required</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {designForm.columns.map((column, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{column.name}</TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={column.type} 
-                          size="small" 
-                          color={getDataTypeColor(column.type)}
-                        />
-                      </TableCell>
-                      <TableCell>{column.description}</TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={column.is_required ? 'Yes' : 'No'} 
-                          size="small" 
-                          color={column.is_required ? 'error' : 'default'}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => openColumnDialog(column, index)}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="small" onClick={() => deleteColumn(index)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Data Steward"
+              value={structureForm.data_steward}
+              onChange={(e) => setStructureForm({...structureForm, data_steward: e.target.value})}
+            />
           </Grid>
         </Grid>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setDesignDialogOpen(false)}>Cancel</Button>
-        <Button onClick={saveDesign} variant="contained" startIcon={<SaveIcon />}>
-          Save Design
+        <Button onClick={() => setStructureDialogOpen(false)}>Cancel</Button>
+        <Button onClick={saveStructure} variant="contained" startIcon={<SaveIcon />}>
+          Save
         </Button>
       </DialogActions>
     </Dialog>
   );
 
-  const renderColumnDialog = () => (
-    <Dialog open={columnDialogOpen} onClose={() => setColumnDialogOpen(false)}>
+  const renderFieldDialog = () => (
+    <Dialog open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)} maxWidth="md" fullWidth>
       <DialogTitle>
-        {editingColumn ? 'Edit Column' : 'Add Column'}
+        {editingField ? 'Edit Field Definition' : 'Create Field Definition'}
       </DialogTitle>
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 1 }}>
-          <Grid item xs={12}>
+          <Grid item xs={12} md={6}>
             <TextField
               fullWidth
-              label="Column Name"
-              value={columnForm.name}
-              onChange={(e) => setColumnForm({ ...columnForm, name: e.target.value })}
-              margin="normal"
+              label="Field Name"
+              value={fieldForm.field_name}
+              onChange={(e) => setFieldForm({...fieldForm, field_name: e.target.value})}
+              required
             />
           </Grid>
-          <Grid item xs={12}>
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Data Type</InputLabel>
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth>
+              <InputLabel>Field Type</InputLabel>
               <Select
-                value={columnForm.type}
-                onChange={(e) => setColumnForm({ ...columnForm, type: e.target.value })}
+                value={fieldForm.field_type}
+                onChange={(e) => setFieldForm({...fieldForm, field_type: e.target.value})}
+                label="Field Type"
               >
                 <MenuItem value="text">Text</MenuItem>
+                <MenuItem value="varchar">VARCHAR</MenuItem>
                 <MenuItem value="integer">Integer</MenuItem>
+                <MenuItem value="bigint">BigInt</MenuItem>
                 <MenuItem value="numeric">Numeric</MenuItem>
+                <MenuItem value="decimal">Decimal</MenuItem>
                 <MenuItem value="boolean">Boolean</MenuItem>
                 <MenuItem value="date">Date</MenuItem>
+                <MenuItem value="timestamp">Timestamp</MenuItem>
+                <MenuItem value="geometry">Geometry</MenuItem>
+                <MenuItem value="geography">Geography</MenuItem>
+                <MenuItem value="jsonb">JSONB</MenuItem>
               </Select>
             </FormControl>
           </Grid>
+          {fieldForm.field_type === 'geometry' && (
+            <>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>PostGIS Type</InputLabel>
+                  <Select
+                    value={fieldForm.postgis_type}
+                    onChange={(e) => setFieldForm({...fieldForm, postgis_type: e.target.value})}
+                    label="PostGIS Type"
+                  >
+                    <MenuItem value="POINT">POINT</MenuItem>
+                    <MenuItem value="LINESTRING">LINESTRING</MenuItem>
+                    <MenuItem value="POLYGON">POLYGON</MenuItem>
+                    <MenuItem value="MULTIPOINT">MULTIPOINT</MenuItem>
+                    <MenuItem value="MULTILINESTRING">MULTILINESTRING</MenuItem>
+                    <MenuItem value="MULTIPOLYGON">MULTIPOLYGON</MenuItem>
+                    <MenuItem value="GEOMETRYCOLLECTION">GEOMETRYCOLLECTION</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="SRID"
+                  value={fieldForm.srid}
+                  onChange={(e) => setFieldForm({...fieldForm, srid: parseInt(e.target.value)})}
+                />
+              </Grid>
+            </>
+          )}
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Sequence Order"
+              value={fieldForm.sequence_order}
+              onChange={(e) => setFieldForm({...fieldForm, sequence_order: parseInt(e.target.value)})}
+              required
+            />
+          </Grid>
           <Grid item xs={12}>
             <TextField
               fullWidth
-              label="Description"
-              value={columnForm.description}
-              onChange={(e) => setColumnForm({ ...columnForm, description: e.target.value })}
-              margin="normal"
               multiline
               rows={2}
+              label="Description"
+              value={fieldForm.description}
+              onChange={(e) => setFieldForm({...fieldForm, description: e.target.value})}
             />
           </Grid>
           <Grid item xs={12}>
             <FormControlLabel
               control={
                 <Switch
-                  checked={columnForm.is_required}
-                  onChange={(e) => setColumnForm({ ...columnForm, is_required: e.target.checked })}
+                  checked={fieldForm.is_required}
+                  onChange={(e) => setFieldForm({...fieldForm, is_required: e.target.checked})}
                 />
               }
-              label="Required Field"
+              label="Required"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={fieldForm.is_primary_key}
+                  onChange={(e) => setFieldForm({...fieldForm, is_primary_key: e.target.checked})}
+                />
+              }
+              label="Primary Key"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={fieldForm.is_unique}
+                  onChange={(e) => setFieldForm({...fieldForm, is_unique: e.target.checked})}
+                />
+              }
+              label="Unique"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={fieldForm.has_index}
+                  onChange={(e) => setFieldForm({...fieldForm, has_index: e.target.checked})}
+                />
+              }
+              label="Has Index"
             />
           </Grid>
         </Grid>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setColumnDialogOpen(false)}>Cancel</Button>
-        <Button onClick={saveColumn} variant="contained">Save Column</Button>
+        <Button onClick={() => setFieldDialogOpen(false)}>Cancel</Button>
+        <Button onClick={saveField} variant="contained" startIcon={<SaveIcon />}>
+          Save
+        </Button>
       </DialogActions>
     </Dialog>
   );
 
-  const renderConfigDialog = () => (
-    <Dialog open={configDialogOpen} onClose={() => setConfigDialogOpen(false)} maxWidth="md" fullWidth>
+  const renderTemplateDialog = () => (
+    <Dialog open={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)} maxWidth="md" fullWidth>
       <DialogTitle>
-        {editingConfig ? 'Edit Mapping Configuration' : 'Create New Mapping Configuration'}
+        {editingTemplate ? 'Edit Table Template' : 'Create Table Template'}
       </DialogTitle>
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 1 }}>
           <Grid item xs={12} md={6}>
             <TextField
               fullWidth
-              label="Configuration Name"
-              value={configForm.config_name}
-              onChange={(e) => setConfigForm({ ...configForm, config_name: e.target.value })}
-              margin="normal"
+              label="Template Name"
+              value={templateForm.template_name}
+              onChange={(e) => setTemplateForm({...templateForm, template_name: e.target.value})}
+              required
             />
           </Grid>
           <Grid item xs={12} md={6}>
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Table Design</InputLabel>
+            <FormControl fullWidth>
+              <InputLabel>Template Type</InputLabel>
               <Select
-                value={configForm.design_id}
-                onChange={(e) => setConfigForm({ ...configForm, design_id: e.target.value })}
+                value={templateForm.template_type}
+                onChange={(e) => setTemplateForm({...templateForm, template_type: e.target.value})}
+                label="Template Type"
               >
-                {designs.map(design => (
-                  <MenuItem key={design.design_id} value={design.design_id}>
-                    {design.design_name} ({design.table_name})
+                <MenuItem value="staging">Staging</MenuItem>
+                <MenuItem value="master">Master</MenuItem>
+                <MenuItem value="intermediate">Intermediate</MenuItem>
+                <MenuItem value="archive">Archive</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth>
+              <InputLabel>Dataset Structure</InputLabel>
+              <Select
+                value={templateForm.structure_id}
+                onChange={(e) => setTemplateForm({...templateForm, structure_id: e.target.value})}
+                label="Dataset Structure"
+                required
+              >
+                {structures.map((structure) => (
+                  <MenuItem key={structure.structure_id} value={structure.structure_id}>
+                    {structure.dataset_name}
                   </MenuItem>
                 ))}
               </Select>
@@ -484,217 +609,283 @@ const DesignSystem = () => {
           <Grid item xs={12} md={6}>
             <TextField
               fullWidth
-              label="Priority"
-              type="number"
-              value={configForm.priority}
-              onChange={(e) => setConfigForm({ ...configForm, priority: parseInt(e.target.value) })}
-              margin="normal"
+              label="Table Name Pattern"
+              value={templateForm.table_name_pattern}
+              onChange={(e) => setTemplateForm({...templateForm, table_name_pattern: e.target.value})}
+              placeholder="{dataset_name}_staging"
             />
           </Grid>
           <Grid item xs={12}>
-            <TextField
-              fullWidth
-              label="Source Patterns (comma-separated)"
-              value={configForm.source_patterns.join(', ')}
-              onChange={(e) => setConfigForm({ 
-                ...configForm, 
-                source_patterns: e.target.value.split(',').map(s => s.trim()).filter(s => s)
-              })}
-              margin="normal"
-              helperText="Patterns to match in file names (e.g., 'address, property, postcode')"
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={templateForm.include_audit_fields}
+                  onChange={(e) => setTemplateForm({...templateForm, include_audit_fields: e.target.checked})}
+                />
+              }
+              label="Include Audit Fields"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={templateForm.include_source_tracking}
+                  onChange={(e) => setTemplateForm({...templateForm, include_source_tracking: e.target.checked})}
+                />
+              }
+              label="Include Source Tracking"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={templateForm.include_processing_metadata}
+                  onChange={(e) => setTemplateForm({...templateForm, include_processing_metadata: e.target.checked})}
+                />
+              }
+              label="Include Processing Metadata"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={templateForm.postgis_enabled}
+                  onChange={(e) => setTemplateForm({...templateForm, postgis_enabled: e.target.checked})}
+                />
+              }
+              label="PostGIS Enabled"
             />
           </Grid>
         </Grid>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setConfigDialogOpen(false)}>Cancel</Button>
-        <Button onClick={saveConfig} variant="contained" startIcon={<SaveIcon />}>
-          Save Configuration
+        <Button onClick={() => setTemplateDialogOpen(false)}>Cancel</Button>
+        <Button onClick={saveTemplate} variant="contained" startIcon={<SaveIcon />}>
+          Save
         </Button>
       </DialogActions>
     </Dialog>
   );
 
+  const renderGenerationDialog = () => (
+    <Dialog open={generationDialogOpen} onClose={() => setGenerationDialogOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>Generate Table from Template</DialogTitle>
+      <DialogContent>
+        <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Table Name"
+              value={generationForm.table_name}
+              onChange={(e) => setGenerationForm({...generationForm, table_name: e.target.value})}
+              required
+            />
+          </Grid>
+          {selectedTemplate && (
+            <Grid item xs={12}>
+              <Typography variant="body2" color="textSecondary">
+                Template: {selectedTemplate.template_name}
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                Type: {selectedTemplate.template_type}
+              </Typography>
+            </Grid>
+          )}
+        </Grid>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setGenerationDialogOpen(false)}>Cancel</Button>
+        <Button onClick={generateTable} variant="contained" startIcon={<TableIcon />}>
+          Generate Table
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  const renderStructuresTab = () => (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h6">Dataset Structures</Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => openStructureDialog()}
+        >
+          Create Structure
+        </Button>
+      </Box>
+      
+      <Grid container spacing={2}>
+        {structures.map((structure) => (
+          <Grid item xs={12} md={6} key={structure.structure_id}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Box>
+                    <Typography variant="h6">{structure.dataset_name}</Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+                      {structure.description}
+                    </Typography>
+                    <Chip 
+                      label={structure.source_type} 
+                      size="small" 
+                      sx={{ mr: 1 }}
+                    />
+                    <Chip 
+                      label={structure.status} 
+                      size="small" 
+                      color={structure.status === 'active' ? 'success' : 'default'}
+                    />
+                  </Box>
+                  <Box>
+                    <IconButton size="small" onClick={() => openStructureDialog(structure)}>
+                      <EditIcon />
+                    </IconButton>
+                  </Box>
+                </Box>
+                
+                <Divider sx={{ my: 2 }} />
+                
+                <Typography variant="subtitle2" gutterBottom>Details:</Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Governing Body: {structure.governing_body || 'N/A'}
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Business Owner: {structure.business_owner || 'N/A'}
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Data Steward: {structure.data_steward || 'N/A'}
+                </Typography>
+                
+                <Box sx={{ mt: 2 }}>
+                  <Button
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={() => openFieldDialog(structure.structure_id)}
+                  >
+                    Add Field
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+
+  const renderTemplatesTab = () => (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h6">Table Templates</Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => openTemplateDialog()}
+        >
+          Create Template
+        </Button>
+      </Box>
+      
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Template Name</TableCell>
+              <TableCell>Type</TableCell>
+              <TableCell>Dataset</TableCell>
+              <TableCell>PostGIS</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {templates.map((template) => (
+              <TableRow key={template.template_id}>
+                <TableCell>{template.template_name}</TableCell>
+                <TableCell>
+                  <Chip label={template.template_type} size="small" />
+                </TableCell>
+                <TableCell>{template.dataset_name}</TableCell>
+                <TableCell>
+                  {template.postgis_enabled ? (
+                    <Chip label="Enabled" size="small" color="success" />
+                  ) : (
+                    <Chip label="Disabled" size="small" />
+                  )}
+                </TableCell>
+                <TableCell>
+                  <IconButton size="small" onClick={() => openTemplateDialog(template)}>
+                    <EditIcon />
+                  </IconButton>
+                  <IconButton size="small" onClick={() => openGenerationDialog(template)}>
+                    <TableIcon />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+
+  const renderUploadsTab = () => (
+    <Box>
+      <Typography variant="h6" gutterBottom>Recent Uploads</Typography>
+      
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>File Name</TableCell>
+              <TableCell>Dataset</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Uploaded By</TableCell>
+              <TableCell>Upload Date</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {uploads.map((upload) => (
+              <TableRow key={upload.upload_id}>
+                <TableCell>{upload.file_name}</TableCell>
+                <TableCell>{upload.dataset_name}</TableCell>
+                <TableCell>
+                  <Chip 
+                    label={upload.processing_status} 
+                    size="small" 
+                    color={upload.processing_status === 'completed' ? 'success' : 'default'}
+                  />
+                </TableCell>
+                <TableCell>{upload.uploaded_by}</TableCell>
+                <TableCell>{new Date(upload.uploaded_at).toLocaleDateString()}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Typography variant="h4" gutterBottom>
-        Design System
+        Dataset Structure System
       </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Create and manage table designs and mapping configurations for data uploads
-      </Typography>
-
+      
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab label="Table Designs" />
-          <Tab label="Mapping Configurations" />
-          <Tab label="Audit Logs" />
+          <Tab label="Dataset Structures" />
+          <Tab label="Table Templates" />
+          <Tab label="Recent Uploads" />
         </Tabs>
       </Box>
 
-      {/* Table Designs Tab */}
-      {activeTab === 0 && (
-        <Card>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">Table Designs</Typography>
-              <Button
-                startIcon={<AddIcon />}
-                onClick={() => openDesignDialog()}
-                variant="contained"
-              >
-                Create Design
-              </Button>
-            </Box>
+      {activeTab === 0 && renderStructuresTab()}
+      {activeTab === 1 && renderTemplatesTab()}
+      {activeTab === 2 && renderUploadsTab()}
 
-            <TableContainer component={Paper} variant="outlined">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Design Name</TableCell>
-                    <TableCell>Table Name</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Category</TableCell>
-                    <TableCell>Columns</TableCell>
-                    <TableCell>Version</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {designs.map((design) => (
-                    <TableRow key={design.design_id}>
-                      <TableCell>{design.design_name}</TableCell>
-                      <TableCell>{design.table_name}</TableCell>
-                      <TableCell>
-                        <Chip label={design.table_type} size="small" color="primary" />
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={design.category} size="small" color="secondary" />
-                      </TableCell>
-                      <TableCell>{design.columns?.length || 0}</TableCell>
-                      <TableCell>v{design.version}</TableCell>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => openDesignDialog(design)}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="small">
-                          <ViewIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
+      {renderStructureDialog()}
+      {renderFieldDialog()}
+      {renderTemplateDialog()}
+      {renderGenerationDialog()}
 
-      {/* Mapping Configurations Tab */}
-      {activeTab === 1 && (
-        <Card>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">Mapping Configurations</Typography>
-              <Button
-                startIcon={<AddIcon />}
-                onClick={() => openConfigDialog()}
-                variant="contained"
-              >
-                Create Configuration
-              </Button>
-            </Box>
-
-            <TableContainer component={Paper} variant="outlined">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Configuration Name</TableCell>
-                    <TableCell>Table Design</TableCell>
-                    <TableCell>Priority</TableCell>
-                    <TableCell>Patterns</TableCell>
-                    <TableCell>Version</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {configs.map((config) => (
-                    <TableRow key={config.config_id}>
-                      <TableCell>{config.config_name}</TableCell>
-                      <TableCell>{config.design_name}</TableCell>
-                      <TableCell>
-                        <Chip label={config.priority} size="small" color="primary" />
-                      </TableCell>
-                      <TableCell>
-                        {config.source_patterns?.map((pattern, i) => (
-                          <Chip key={i} label={pattern} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
-                        ))}
-                      </TableCell>
-                      <TableCell>v{config.version}</TableCell>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => openConfigDialog(config)}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="small">
-                          <ViewIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Audit Logs Tab */}
-      {activeTab === 2 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2 }}>Audit Logs</Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Timestamp</TableCell>
-                    <TableCell>User</TableCell>
-                    <TableCell>Action</TableCell>
-                    <TableCell>Resource Type</TableCell>
-                    <TableCell>Resource ID</TableCell>
-                    <TableCell>Details</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {auditLogs.map((log) => (
-                    <TableRow key={log.audit_id}>
-                      <TableCell>{new Date(log.timestamp).toLocaleString()}</TableCell>
-                      <TableCell>{log.user_id}</TableCell>
-                      <TableCell>
-                        <Chip label={log.action} size="small" color="primary" />
-                      </TableCell>
-                      <TableCell>{log.resource_type}</TableCell>
-                      <TableCell>{log.resource_id}</TableCell>
-                      <TableCell>
-                        <Typography variant="body2" noWrap>
-                          {JSON.stringify(log.details)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Dialogs */}
-      {renderDesignDialog()}
-      {renderColumnDialog()}
-      {renderConfigDialog()}
-
-      {/* Snackbar for messages */}
       <Snackbar
         open={!!message}
         autoHideDuration={6000}
