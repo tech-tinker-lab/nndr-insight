@@ -3,6 +3,7 @@ import api from "../api/axios";
 import { Database } from "lucide-react";
 import toast from "react-hot-toast";
 import clsx from "clsx";
+import StagingTableAutocomplete from "../components/StagingTableAutocomplete";
 
 const API_BASE = "/api/admin/staging";
 
@@ -144,16 +145,12 @@ export default function StagedData() {
       {tab === "preview" && (
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">Select Staging Table</label>
-          <select
+          <StagingTableAutocomplete
             value={selectedTable}
-            onChange={handleTableChange}
-            className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">Select a table...</option>
-            {STAGING_TABLES.map((table) => (
-              <option key={table} value={table}>{table}</option>
-            ))}
-          </select>
+            onChange={setSelectedTable}
+            placeholder="Select a staging table..."
+            className="p-3"
+          />
         </div>
       )}
       {tab === "preview" && (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useUser } from '../../context/UserContext';
+import StagingTableAutocomplete from '../StagingTableAutocomplete';
 
 const HISTORY_PAGE_SIZE = 25;
 
@@ -203,16 +204,12 @@ const StagingManager = () => {
       {/* Table Selection */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-6">
         <h2 className="text-xl font-semibold mb-4">Select Staging Table</h2>
-        <select
+        <StagingTableAutocomplete
           value={selectedTable}
-          onChange={(e) => setSelectedTable(e.target.value)}
-          className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="">Select a staging table...</option>
-          {stagingTables.map(table => (
-            <option key={table} value={table}>{table}</option>
-          ))}
-        </select>
+          onChange={setSelectedTable}
+          placeholder="Select a staging table..."
+          className="p-3"
+        />
       </div>
 
       {selectedTable && tableSummary && (

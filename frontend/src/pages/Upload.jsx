@@ -33,6 +33,10 @@ import api from '../api/axios';
 import toast from 'react-hot-toast';
 import { useUser } from '../context/UserContext';
 import AIDataAnalyzer from '../services/aiDataAnalyzer';
+import StagingTableAutocomplete from '../components/StagingTableAutocomplete';
+import StagingConfigManager from '../components/StagingConfigManager';
+import EnhancedColumnMapping from '../components/EnhancedColumnMapping';
+import UploadActionSuggestions from '../components/UploadActionSuggestions';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -189,12 +193,129 @@ const FileAnalyzer = {
       return 'geojson';
     }
     
-    // Check for text files
+        // Check for text files
     if (extension === 'txt' || mimeType.startsWith('text/')) {
       return 'text';
     }
     
-    return 'unknown';
+    // Default to text for unknown types
+    return 'text';
+  },
+  
+  // Auto-detect data type from sample values
+  detectDataType: (sampleValues) => {
+    if (!sampleValues || sampleValues.length === 0) return 'text';
+    
+    // Check for boolean values
+    const booleanPattern = /^(true|false|yes|no|1|0)$/i;
+    if (sampleValues.every(val => booleanPattern.test(String(val)))) {
+      return 'boolean';
+    }
+    
+    // Check for date values
+    const datePatterns = [
+      /^\d{4}-\d{2}-\d{2}$/, // YYYY-MM-DD
+      /^\d{2}\/\d{2}\/\d{4}$/, // MM/DD/YYYY
+      /^\d{2}-\d{2}-\d{4}$/, // MM-DD-YYYY
+      /^\d{4}\/\d{2}\/\d{2}$/, // YYYY/MM/DD
+      /^\d{1,2}\/\d{1,2}\/\d{2,4}$/, // M/D/YY or M/D/YYYY
+    ];
+    
+    if (sampleValues.every(val => {
+      const strVal = String(val);
+      return datePatterns.some(pattern => pattern.test(strVal));
+    })) {
+      return 'date';
+    }
+    
+    // Check for timestamp values
+    const timestampPatterns = [
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, // YYYY-MM-DD HH:MM:SS
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, // ISO format
+    ];
+    
+    if (sampleValues.every(val => {
+      const strVal = String(val);
+      return timestampPatterns.some(pattern => pattern.test(strVal));
+    })) {
+      return 'timestamp';
+    }
+    
+    // Check for integer values
+    const integerPattern = /^-?\d+$/;
+    if (sampleValues.every(val => integerPattern.test(String(val)))) {
+      return 'integer';
+    }
+    
+    // Check for decimal values
+    const decimalPattern = /^-?\d+\.\d+$/;
+    if (sampleValues.every(val => {
+      const strVal = String(val);
+      return decimalPattern.test(strVal) || integerPattern.test(strVal);
+    })) {
+      return 'decimal';
+    }
+    
+    // Default to text for everything else
+    return 'text';
+  },
+  
+  // Auto-detect data type from sample values
+  detectDataType: (sampleValues) => {
+    if (!sampleValues || sampleValues.length === 0) return 'text';
+    
+    // Check for boolean values
+    const booleanPattern = /^(true|false|yes|no|1|0)$/i;
+    if (sampleValues.every(val => booleanPattern.test(String(val)))) {
+      return 'boolean';
+    }
+    
+    // Check for date values
+    const datePatterns = [
+      /^\d{4}-\d{2}-\d{2}$/, // YYYY-MM-DD
+      /^\d{2}\/\d{2}\/\d{4}$/, // MM/DD/YYYY
+      /^\d{2}-\d{2}-\d{4}$/, // MM-DD-YYYY
+      /^\d{4}\/\d{2}\/\d{2}$/, // YYYY/MM/DD
+      /^\d{1,2}\/\d{1,2}\/\d{2,4}$/, // M/D/YY or M/D/YYYY
+    ];
+    
+    if (sampleValues.every(val => {
+      const strVal = String(val);
+      return datePatterns.some(pattern => pattern.test(strVal));
+    })) {
+      return 'date';
+    }
+    
+    // Check for timestamp values
+    const timestampPatterns = [
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, // YYYY-MM-DD HH:MM:SS
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, // ISO format
+    ];
+    
+    if (sampleValues.every(val => {
+      const strVal = String(val);
+      return timestampPatterns.some(pattern => pattern.test(strVal));
+    })) {
+      return 'timestamp';
+    }
+    
+    // Check for integer values
+    const integerPattern = /^-?\d+$/;
+    if (sampleValues.every(val => integerPattern.test(String(val)))) {
+      return 'integer';
+    }
+    
+    // Check for decimal values
+    const decimalPattern = /^-?\d+\.\d+$/;
+    if (sampleValues.every(val => {
+      const strVal = String(val);
+      return decimalPattern.test(strVal) || integerPattern.test(strVal);
+    })) {
+      return 'decimal';
+    }
+    
+    // Default to text for everything else
+    return 'text';
   },
 
   // Get file icon based on type
@@ -1257,10 +1378,10 @@ export default function Upload() {
 
   // Enhanced file preview component with mapping capabilities
   const FilePreview = ({ file, getAllConfigs }) => {
-    const [showMapping, setShowMapping] = useState(false);
     const [stagingConfig, setStagingConfig] = useState(null);
     const [csvDelimiter, setCsvDelimiter] = useState(file.analysis?.preview?.detectedDelimiter || ',');
     const [csvPreview, setCsvPreview] = useState(null);
+    const [showActionSuggestions, setShowActionSuggestions] = useState(false);
     const { saveConfig, getConfig } = useStagingConfig();
     
     console.log('FilePreview rendering for file:', file.name, 'analysis:', file.analysis);
@@ -1382,15 +1503,6 @@ export default function Upload() {
             </span>
           </div>
           <div className="flex items-center space-x-2">
-            {analysis.preview?.type === 'csv' && (
-              <button
-                onClick={() => setShowMapping(!showMapping)}
-                className="text-xs text-green-600 hover:text-green-800 flex items-center"
-              >
-                <MapPin className="w-3 h-3 mr-1" />
-                {showMapping ? 'Hide Mapping' : 'Design Mapping'}
-              </button>
-            )}
             <button
               onClick={() => setSelectedFile(selectedFile?.id === file.id ? null : file)}
               className="text-xs text-blue-600 hover:text-blue-800"
@@ -1570,19 +1682,48 @@ export default function Upload() {
           </div>
         )}
 
-        {/* Column Mapping Interface */}
-        {showMapping && analysis.preview?.type === 'csv' && (
-          <ColumnMappingInterface 
-            file={file} 
-            analysis={analysis}
-            stagingConfig={stagingConfig}
-            setStagingConfig={setStagingConfig}
-            saveConfig={saveConfig}
-            getConfig={getConfig}
-            getAllConfigs={getAllConfigs}
-            csvDelimiter={csvDelimiter}
-          />
+        {/* Action Suggestions */}
+        {analysis.preview?.headers && analysis.preview.headers.length > 0 && (
+          <div className="mt-3">
+            {showActionSuggestions ? (
+              <UploadActionSuggestions
+                file={file.file}
+                headers={analysis.preview.headers}
+                onAction={(action) => {
+                  console.log('Action selected:', action);
+                  if (action === 'proceed_upload') {
+                    // Proceed with upload
+                    startIngestion(file.id);
+                  }
+                }}
+                onClose={() => setShowActionSuggestions(false)}
+                onUseExistingConfig={(configId) => {
+                  // Load existing config
+                  console.log('Loading config:', configId);
+                  setShowActionSuggestions(false);
+                }}
+              />
+            ) : (
+              <button
+                onClick={() => setShowActionSuggestions(true)}
+                className="w-full p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors text-left"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Info className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-800">Get Action Suggestions</span>
+                  </div>
+                  <span className="text-xs text-blue-600">Click to see recommendations</span>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  Based on your file analysis, get suggestions for saving configs, using existing ones, or proceeding with upload
+                </p>
+              </button>
+            )}
+          </div>
         )}
+
+
 
         {/* File Preview */}
         {selectedFile?.id === file.id && (
@@ -1693,14 +1834,7 @@ export default function Upload() {
     );
   };
 
-  // Column Mapping Interface Component
-  const ColumnMappingInterface = ({ file, analysis, stagingConfig, setStagingConfig, saveConfig, getConfig, getAllConfigs, csvDelimiter }) => {
-    const [mappings, setMappings] = useState([]);
-    const [stagingTableName, setStagingTableName] = useState('');
-    const [showStagingDesigner, setShowStagingDesigner] = useState(false);
-    const [selectedConfigId, setSelectedConfigId] = useState(null);
-    const [availableConfigs, setAvailableConfigs] = useState([]);
-    const [bestMatchConfig, setBestMatchConfig] = useState(null);
+
 
     // Calculate similarity score between current file and a saved config
     const calculateSimilarityScore = (currentHeaders, savedConfig) => {
@@ -1728,518 +1862,19 @@ export default function Upload() {
       return (jaccardSimilarity * 0.4) + (exactMatchScore * 0.6);
     };
 
-    // Find best matching configuration
-    const findBestMatch = (currentHeaders, allConfigs) => {
-      let bestScore = 0;
-      let bestConfig = null;
-      
-      Object.entries(allConfigs).forEach(([configId, config]) => {
-        const score = calculateSimilarityScore(currentHeaders, config);
-        if (score > bestScore) {
-          bestScore = score;
-          bestConfig = { id: configId, config, score };
-        }
-      });
-      
-      return bestConfig && bestScore > 0.3 ? bestConfig : null; // Only return if similarity > 30%
-    };
-
-    // Load configuration
-    const loadConfiguration = (configId) => {
-      const config = getConfig(configId);
-      if (config) {
-        setMappings(config.mappings || []);
-        setStagingTableName(config.stagingTableName || '');
-        setSelectedConfigId(configId);
-        toast.success(`Loaded configuration: ${config.fileName || configId}`);
-      }
-    };
-
-    // Auto-apply best match
-    const applyBestMatch = () => {
-      if (bestMatchConfig) {
-        loadConfiguration(bestMatchConfig.id);
-        toast.success(`Auto-applied best match: ${bestMatchConfig.config.fileName || bestMatchConfig.id} (${Math.round(bestMatchConfig.score * 100)}% match)`);
-      }
-    };
-
-    useEffect(() => {
-      // Get all available configurations
-      const allConfigs = getAllConfigs();
-      const configsList = Object.entries(allConfigs).map(([id, config]) => ({
-        id,
-        fileName: config.fileName || id,
-        createdAt: config.createdAt,
-        score: calculateSimilarityScore(analysis.preview.headers, config)
-      })).sort((a, b) => b.score - a.score);
-      
-      setAvailableConfigs(configsList);
-      
-      // Find best match
-      const bestMatch = findBestMatch(analysis.preview.headers, allConfigs);
-      setBestMatchConfig(bestMatch);
-      
-      // Initialize mappings from existing config or create new ones
-      const existingConfig = getConfig(file.id);
-      if (existingConfig) {
-        setMappings(existingConfig.mappings || []);
-        setStagingTableName(existingConfig.stagingTableName || '');
-        setSelectedConfigId(file.id);
-      } else {
-        // Create default mappings
-        const defaultMappings = analysis.preview.headers.map((header, idx) => ({
-          id: `mapping_${idx}`,
-          sourceColumn: header,
-          targetColumn: header.toLowerCase().replace(/\s+/g, '_'),
-          mappingType: MAPPING_TYPES.DIRECT,
-          defaultValue: '',
-          transformation: null,
-          mergeColumns: [],
-          isRequired: false,
-          dataType: 'text'
-        }));
-        setMappings(defaultMappings);
-      }
-    }, [file.id, analysis.preview.headers]);
-
-    const addMapping = () => {
-      const newMapping = {
-        id: `mapping_${Date.now()}`,
-        sourceColumn: '',
-        targetColumn: '',
-        mappingType: MAPPING_TYPES.DIRECT,
-        defaultValue: '',
-        transformation: null,
-        mergeColumns: [],
-        isRequired: false,
-        dataType: 'text'
-      };
-      setMappings([...mappings, newMapping]);
-    };
-
-    const updateMapping = (id, updates) => {
-      setMappings(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
-    };
-
-    const removeMapping = (id) => {
-      setMappings(prev => prev.filter(m => m.id !== id));
-    };
-
-    const saveMappingConfig = () => {
-      const config = {
-        fileId: file.id,
-        fileName: file.name,
-        stagingTableName,
-        mappings,
-        createdAt: new Date().toISOString()
-      };
-      saveConfig(file.id, config);
-      toast.success('Mapping configuration saved');
-    };
-
-    const generateStagingTableSQL = () => {
-      const columns = mappings.map(mapping => {
-        let sqlType = 'TEXT';
-        switch (mapping.dataType) {
-          case 'integer': sqlType = 'INTEGER'; break;
-          case 'decimal': sqlType = 'DECIMAL(10,2)'; break;
-          case 'date': sqlType = 'DATE'; break;
-          case 'timestamp': sqlType = 'TIMESTAMP'; break;
-          case 'boolean': sqlType = 'BOOLEAN'; break;
-          default: sqlType = 'TEXT';
-        }
-        
-        let constraint = '';
-        if (mapping.isRequired) {
-          constraint = ' NOT NULL';
-        }
-        
-        return `  ${mapping.targetColumn} ${sqlType}${constraint}`;
-      });
-
-      return `CREATE TABLE IF NOT EXISTS ${stagingTableName || 'staging_table'} (
-  id SERIAL PRIMARY KEY,
-  source_file TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-${columns.join(',\n')}
-);`;
-    };
-
-    return (
-      <div className="mt-3 p-3 bg-white rounded border">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-medium text-gray-900">Column Mapping & Staging Table Design</h4>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowStagingDesigner(!showStagingDesigner)}
-              className="text-xs text-purple-600 hover:text-purple-800 flex items-center"
-            >
-              <Table className="w-3 h-3 mr-1" />
-              {showStagingDesigner ? 'Hide SQL' : 'Show SQL'}
-            </button>
-            <button
-              onClick={saveMappingConfig}
-              className="text-xs text-green-600 hover:text-green-800 flex items-center"
-            >
-              <Save className="w-3 h-3 mr-1" />
-              Save Config
-            </button>
-          </div>
-        </div>
-
-        {/* Staging Table Name */}
-        <div className="mb-3">
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            Staging Table Name:
-          </label>
-          <input
-            type="text"
-            value={stagingTableName}
-            onChange={(e) => setStagingTableName(e.target.value)}
-            placeholder="e.g., staging_nndr_ratepayers"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-          />
-        </div>
-
-        {/* Configuration Management */}
-        {availableConfigs.length > 0 && (
-          <div className="mb-3 p-3 bg-blue-50 rounded border border-blue-200">
-            <div className="flex items-center justify-between mb-2">
-              <h5 className="text-xs font-medium text-blue-900">Load Saved Configuration</h5>
-              {bestMatchConfig && (
-                <button
-                  onClick={applyBestMatch}
-                  className="text-xs text-green-600 hover:text-green-800 flex items-center bg-green-100 px-2 py-1 rounded"
-                >
-                  <CheckCircle className="w-3 h-3 mr-1" />
-                  Auto-apply Best Match ({Math.round(bestMatchConfig.score * 100)}%)
-                </button>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <select
-                  value={selectedConfigId || ''}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      loadConfiguration(e.target.value);
-                    } else {
-                      setSelectedConfigId(null);
-                      // Reset to default mappings
-                      const defaultMappings = analysis.preview.headers.map((header, idx) => ({
-                        id: `mapping_${idx}`,
-                        sourceColumn: header,
-                        targetColumn: header.toLowerCase().replace(/\s+/g, '_'),
-                        mappingType: MAPPING_TYPES.DIRECT,
-                        defaultValue: '',
-                        transformation: null,
-                        mergeColumns: [],
-                        isRequired: false,
-                        dataType: 'text'
-                      }));
-                      setMappings(defaultMappings);
-                      setStagingTableName('');
-                    }
-                  }}
-                  className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
-                >
-                  <option value="">Select a saved configuration...</option>
-                  {availableConfigs.map((config) => (
-                    <option key={config.id} value={config.id}>
-                      {config.fileName} ({Math.round(config.score * 100)}% match)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              {/* Configuration Details */}
-              {selectedConfigId && (
-                <div className="text-xs text-blue-700 bg-blue-100 p-2 rounded">
-                  <div className="font-medium mb-1">Selected Configuration:</div>
-                  <div>• File: {getConfig(selectedConfigId)?.fileName || selectedConfigId}</div>
-                  <div>• Created: {new Date(getConfig(selectedConfigId)?.createdAt).toLocaleDateString()}</div>
-                  <div>• Mappings: {getConfig(selectedConfigId)?.mappings?.length || 0} columns</div>
-                </div>
-              )}
-              
-              {/* Best Match Suggestion */}
-              {bestMatchConfig && !selectedConfigId && (
-                <div className="text-xs text-green-700 bg-green-100 p-2 rounded">
-                  <div className="font-medium mb-1">💡 Suggested Best Match:</div>
-                  <div>• {bestMatchConfig.config.fileName || bestMatchConfig.id}</div>
-                  <div>• {Math.round(bestMatchConfig.score * 100)}% column similarity</div>
-                  <div>• Click "Auto-apply Best Match" to use this configuration</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Column Mappings */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h5 className="text-xs font-medium text-gray-700">Column Mappings</h5>
-            <button
-              onClick={addMapping}
-              className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
-            >
-              <Plus className="w-3 h-3 mr-1" />
-              Add Mapping
-            </button>
-          </div>
-          
-          {mappings.map((mapping) => (
-            <ColumnMappingRow
-              key={mapping.id}
-              mapping={mapping}
-              sourceColumns={analysis.preview.headers}
-              onUpdate={(updates) => updateMapping(mapping.id, updates)}
-              onRemove={() => removeMapping(mapping.id)}
-            />
-          ))}
-        </div>
-
-        {/* Staging Table SQL */}
-        {showStagingDesigner && (
-          <div className="mt-3 p-2 bg-gray-100 rounded">
-            <h5 className="text-xs font-medium text-gray-700 mb-2">Generated Staging Table SQL:</h5>
-            <pre className="text-xs text-gray-800 bg-white p-2 rounded border overflow-x-auto">
-              {generateStagingTableSQL()}
-            </pre>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Individual Column Mapping Row Component
-  const ColumnMappingRow = ({ mapping, sourceColumns, onUpdate, onRemove }) => {
-    return (
-      <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded border">
-        {/* Source Column */}
-        <div className="flex-1">
-          <select
-            value={mapping.sourceColumn}
-            onChange={(e) => onUpdate({ sourceColumn: e.target.value })}
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-          >
-            <option value="">Select Source Column</option>
-            {sourceColumns.map((col, idx) => (
-              <option key={idx} value={col}>{col}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Mapping Type */}
-        <div className="w-24">
-          <select
-            value={mapping.mappingType}
-            onChange={(e) => onUpdate({ mappingType: e.target.value })}
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-          >
-            <option value={MAPPING_TYPES.DIRECT}>Direct</option>
-            <option value={MAPPING_TYPES.MERGE}>Merge</option>
-            <option value={MAPPING_TYPES.DEFAULT}>Default</option>
-            <option value={MAPPING_TYPES.TRANSFORM}>Transform</option>
-          </select>
-        </div>
-
-        {/* Target Column */}
-        <div className="flex-1">
-          <input
-            type="text"
-            value={mapping.targetColumn}
-            onChange={(e) => onUpdate({ targetColumn: e.target.value })}
-            placeholder="Target column name"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-          />
-        </div>
-
-        {/* Data Type */}
-        <div className="w-20">
-          <select
-            value={mapping.dataType}
-            onChange={(e) => onUpdate({ dataType: e.target.value })}
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
-          >
-            <option value="text">Text</option>
-            <option value="integer">Integer</option>
-            <option value="decimal">Decimal</option>
-            <option value="date">Date</option>
-            <option value="timestamp">Timestamp</option>
-            <option value="boolean">Boolean</option>
-          </select>
-        </div>
-
-        {/* Required */}
-        <div className="w-16">
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={mapping.isRequired}
-              onChange={(e) => onUpdate({ isRequired: e.target.checked })}
-              className="mr-1"
-            />
-            <span className="text-xs">Required</span>
-          </label>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center space-x-1">
-          <button
-            onClick={onRemove}
-            className="p-1 text-red-600 hover:text-red-800"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  // Directory Tree Component for ZIP files
-  const DirectoryTree = ({ node, level = 0 }) => {
-    const [expanded, setExpanded] = useState(level < 2); // Auto-expand first 2 levels
     
-    if (node.type === 'file') {
-      return (
-        <div className="flex items-center space-x-1 text-gray-600" style={{ marginLeft: `${level * 12}px` }}>
-          {node.icon}
-          <span className="truncate">{node.name}</span>
-          <span className="text-gray-400 text-xs">({formatFileSize(node.size)})</span>
-        </div>
-      );
-    }
+
     
-    return (
-      <div>
-        <div 
-          className="flex items-center space-x-1 text-gray-700 font-medium cursor-pointer hover:bg-gray-100 rounded px-1"
-          style={{ marginLeft: `${level * 12}px` }}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className="text-xs">{expanded ? '📁' : '📂'}</span>
-          <span>{node.name}</span>
-          <span className="text-gray-400 text-xs">({node.children.length} items)</span>
-        </div>
-        {expanded && (
-          <div className="ml-2">
-            {node.children.map((child, idx) => (
-              <DirectoryTree key={idx} node={child} level={level + 1} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
 
-  // Configuration Manager Component
-  const ConfigManager = () => {
-    const { getAllConfigs, deleteConfig } = useStagingConfig();
-    const configs = getAllConfigs();
+    
 
-    const handleDeleteConfig = (datasetId) => {
-      if (window.confirm('Are you sure you want to delete this configuration?')) {
-        deleteConfig(datasetId);
-        toast.success('Configuration deleted');
-      }
-    };
+   
 
-    const exportConfigs = () => {
-      const dataStr = JSON.stringify(configs, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'staging_configs.json';
-      link.click();
-      URL.revokeObjectURL(url);
-    };
 
-    const importConfigs = (event) => {
-      const file = event.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const imported = JSON.parse(e.target.result);
-            // TODO: Implement import logic
-            toast.success('Configurations imported successfully');
-          } catch (error) {
-            toast.error('Failed to import configurations');
-          }
-        };
-        reader.readAsText(file);
-      }
-    };
 
-    return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Staging Configuration Manager</h3>
-          <div className="flex items-center space-x-2">
-            <input
-              type="file"
-              accept=".json"
-              onChange={importConfigs}
-              className="hidden"
-              id="import-configs"
-            />
-            <label
-              htmlFor="import-configs"
-              className="inline-flex items-center px-3 py-1 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
-            >
-              <Download className="w-3 h-3 mr-1" />
-              Import
-            </label>
-            <button
-              onClick={exportConfigs}
-              className="inline-flex items-center px-3 py-1 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <Copy className="w-3 h-3 mr-1" />
-              Export
-            </button>
-          </div>
-        </div>
 
-        <div className="text-xs text-gray-600 mb-3">
-          <strong>Storage Location:</strong> Browser localStorage + Backend (if available)
-        </div>
 
-        {Object.keys(configs).length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <MapPin className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-            <p>No configurations saved yet</p>
-            <p className="text-xs">Create mappings for your datasets to see them here</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {Object.entries(configs).map(([datasetId, config]) => (
-              <div key={datasetId} className="flex items-center justify-between p-3 bg-gray-50 rounded border">
-                <div className="flex-1">
-                  <div className="font-medium text-sm">{config.fileName || 'Unknown File'}</div>
-                  <div className="text-xs text-gray-500">
-                    Table: {config.stagingTableName || 'Not set'} • 
-                    Mappings: {config.mappings?.length || 0} • 
-                    Created: {new Date(config.createdAt).toLocaleDateString()}
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handleDeleteConfig(datasetId)}
-                    className="p-1 text-red-600 hover:text-red-800"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
+
 
   return (
     <div className="space-y-6">
@@ -2274,7 +1909,7 @@ ${columns.join(',\n')}
       </div>
 
       {/* Configuration Manager */}
-      {showConfigManager && <ConfigManager />}
+      {showConfigManager && <StagingConfigManager />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upload Section */}
@@ -2468,4 +2103,4 @@ ${columns.join(',\n')}
       </div>
     </div>
   );
-} 
+}

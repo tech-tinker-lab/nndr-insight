@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield
+  Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield, Palette
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useUser } from '../../context/UserContext';
@@ -13,6 +13,7 @@ const navigation = [
   { name: 'Properties', href: '/properties', icon: Building2 },
   { name: 'Maps', href: '/maps', icon: Map },
   { name: 'Upload', href: '/upload', icon: Upload },
+  { name: 'Design System', href: '/design-system', icon: Palette },
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Staged Data', href: '/admin', icon: Shield },
   { name: 'Master Data', href: '/master', icon: Database },

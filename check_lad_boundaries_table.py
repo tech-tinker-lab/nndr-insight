@@ -5,7 +5,7 @@ Script to examine lad_boundaries table structure and sample data
 
 import sys
 import os
-sys.path.append('setup/database')
+sys.path.append('setup/database/enhanced_ingestion_pipeline')
 
 from db_config import get_connection_string
 import psycopg2

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Table Search Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-container { max-width: 600px; margin: 0 auto; }
+        .input-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        .suggestions { border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; }
+        .suggestion { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .suggestion:hover { background-color: #f5f5f5; }
+        .suggestion.selected { background-color: #e3f2fd; }
+        .debug { background: #f0f0f0; padding: 10px; margin-top: 20px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Table Search Test</h1>
+        
+        <div class="input-group">
+            <label for="tableName">Staging Table Name:</label>
+            <input 
+                type="text" 
+                id="tableName" 
+                placeholder="Search or type table name..."
+                autocomplete="off"
+            >
+            <div id="suggestions" class="suggestions" style="display: none;"></div>
+        </div>
+        
+        <div class="debug">
+            <h3>Debug Info:</h3>
+            <div id="debugInfo">Type in the field above to see search results...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        let searchTimeout = null;
+        let selectedIndex = -1;
+        let suggestions = [];
+
+        const input = document.getElementById('tableName');
+        const suggestionsDiv = document.getElementById('suggestions');
+        const debugInfo = document.getElementById('debugInfo');
+
+        function updateDebugInfo(message) {
+            debugInfo.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+        }
+
+        async function searchTables(query) {
+            try {
+                updateDebugInfo(`Searching for: "${query}"`);
+                
+                const response = await fetch(`${API_BASE}/admin/staging/search-tables-simple`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        limit: 10
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                updateDebugInfo(`Found ${data.suggestions?.length || 0} suggestions`);
+                
+                return data.suggestions || [];
+            } catch (error) {
+                updateDebugInfo(`Error: ${error.message}`);
+                return [];
+            }
+        }
+
+        function showSuggestions(suggestions) {
+            if (suggestions.length === 0) {
+                suggestionsDiv.style.display = 'none';
+                return;
+            }
+
+            suggestionsDiv.innerHTML = suggestions.map((suggestion, index) => `
+                <div class="suggestion ${index === selectedIndex ? 'selected' : ''}" 
+                     data-index="${index}">
+                    <strong>${suggestion.name}</strong> (${suggestion.type})
+                    <br>
+                    <small>${suggestion.description} - ${Math.round(suggestion.confidence * 100)}%</small>
+                </div>
+            `).join('');
+
+            suggestionsDiv.style.display = 'block';
+        }
+
+        function selectSuggestion(suggestion) {
+            input.value = suggestion.name;
+            suggestionsDiv.style.display = 'none';
+            selectedIndex = -1;
+            updateDebugInfo(`Selected: ${suggestion.name}`);
+        }
+
+        // Input change handler
+        input.addEventListener('input', (e) => {
+            const query = e.target.value;
+            
+            // Clear previous timeout
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+
+            // Hide suggestions if query is too short
+            if (query.length < 2) {
+                suggestionsDiv.style.display = 'none';
+                selectedIndex = -1;
+                return;
+            }
+
+            // Debounce search
+            searchTimeout = setTimeout(async () => {
+                suggestions = await searchTables(query);
+                showSuggestions(suggestions);
+            }, 300);
+        });
+
+        // Keyboard navigation
+        input.addEventListener('keydown', (e) => {
+            if (suggestions.length === 0) return;
+
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    selectedIndex = selectedIndex < suggestions.length - 1 ? selectedIndex + 1 : 0;
+                    showSuggestions(suggestions);
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    selectedIndex = selectedIndex > 0 ? selectedIndex - 1 : suggestions.length - 1;
+                    showSuggestions(suggestions);
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+                        selectSuggestion(suggestions[selectedIndex]);
+                    }
+                    break;
+                case 'Escape':
+                    suggestionsDiv.style.display = 'none';
+                    selectedIndex = -1;
+                    input.blur();
+                    break;
+            }
+        });
+
+        // Click on suggestion
+        suggestionsDiv.addEventListener('click', (e) => {
+            const suggestionElement = e.target.closest('.suggestion');
+            if (suggestionElement) {
+                const index = parseInt(suggestionElement.dataset.index);
+                selectSuggestion(suggestions[index]);
+            }
+        });
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.style.display = 'none';
+                selectedIndex = -1;
+            }
+        });
+
+        updateDebugInfo('Test page loaded. Start typing to test table search...');
+    </script>
+</body>
+</html> 

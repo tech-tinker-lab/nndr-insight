@@ -26,6 +26,7 @@
     "reactflow": "^11.11.4",
     "recharts": "^2.9.0",
     "@mui/material": "^5.15.14",
+    "@mui/icons-material": "^5.15.14",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "jszip": "^3.10.1"
