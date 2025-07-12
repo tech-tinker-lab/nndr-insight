@@ -19,6 +19,7 @@ import chardet
 
 from ..services.database_service import get_db
 from ..routers.admin import require_authenticated_user, require_admin_or_power
+from ..models import User
 from ..services.database_service import DatabaseService
 
 router = APIRouter(prefix="/api/design-enhanced", tags=["design-enhanced"])
@@ -158,8 +159,8 @@ def detect_csv_format(content: bytes, filename: str) -> Dict[str, Any]:
         # Find best delimiter (most fields)
         best_delimiter = max(delimiter_scores.items(), key=lambda x: x[1])[0]
         
-        # Parse sample data
-        sample_lines = lines[:10]  # First 10 lines
+        # Parse sample data (limit to first 5 lines for speed)
+        sample_lines = lines[:5]  # First 5 lines for faster analysis
         parsed_data = []
         
         for line in sample_lines:
@@ -176,12 +177,33 @@ def detect_csv_format(content: bytes, filename: str) -> Dict[str, Any]:
         
         # Analyze structure
         field_count = len(parsed_data[0])
-        has_header = True  # Assume first row is header
         
-        # Check if first row looks like header (contains text, not just numbers)
+        # Check if first row looks like header
         first_row = parsed_data[0]
+        
+        # More sophisticated header detection
+        # 1. Check if first row has mostly text fields
         text_fields = sum(1 for field in first_row if not field.replace('.', '').replace('-', '').isdigit())
-        has_header = text_fields > field_count / 2
+        text_ratio = text_fields / field_count if field_count > 0 else 0
+        
+        # 2. Check if first row has common header patterns
+        header_patterns = ['id', 'name', 'type', 'date', 'address', 'postcode', 'code', 'value', 'amount', 'price']
+        header_matches = sum(1 for field in first_row if any(pattern in field.lower() for pattern in header_patterns))
+        
+        # 3. Check if second row (if exists) has different data types than first row
+        has_different_types = False
+        if len(parsed_data) > 1:
+            second_row = parsed_data[1]
+            first_row_types = [not field.replace('.', '').replace('-', '').isdigit() for field in first_row]
+            second_row_types = [not field.replace('.', '').replace('-', '').isdigit() for field in second_row]
+            has_different_types = first_row_types != second_row_types
+        
+        # Determine if first row is header
+        has_header = (text_ratio > 0.6) or (header_matches > 0) or has_different_types
+        
+        # Log header detection details for debugging
+        print(f"CSV Header Detection: text_ratio={text_ratio:.2f}, header_matches={header_matches}, has_different_types={has_different_types}, has_header={has_header}")
+        print(f"First row: {first_row}")
         
         # Analyze field types
         field_analysis = []
@@ -189,7 +211,38 @@ def detect_csv_format(content: bytes, filename: str) -> Dict[str, Any]:
         
         for i in range(field_count):
             field_values = [row[i] for row in parsed_data[start_row:] if i < len(row)]
-            field_analysis.append(analyze_field_type(field_values, i))
+            field_info = analyze_field_type(field_values, i)
+            
+            # Add field name and metadata
+            if has_header and i < len(parsed_data[0]):
+                header_field = parsed_data[0][i]
+                # Clean up header field name
+                if header_field and header_field.strip():
+                    # Remove special characters and spaces, convert to lowercase
+                    field_name = re.sub(r'[^a-zA-Z0-9_]', '_', header_field.strip().lower())
+                    # Remove leading/trailing underscores
+                    field_name = field_name.strip('_')
+                    # Ensure it starts with a letter
+                    if field_name and not field_name[0].isalpha():
+                        field_name = f"field_{field_name}"
+                    # If empty after cleaning, use generated name
+                    if not field_name:
+                        field_name = f"field_{i+1}"
+                else:
+                    field_name = f"field_{i+1}"
+            else:
+                field_name = f"field_{i+1}"  # Generate field name
+            
+            field_info.update({
+                "field_name": field_name,
+                "sequence_order": i + 1,
+                "source_column_index": i
+            })
+            
+            # Log field name generation for debugging
+            print(f"Field {i+1}: original='{parsed_data[0][i] if has_header and i < len(parsed_data[0]) else 'N/A'}', generated='{field_name}'")
+            
+            field_analysis.append(field_info)
         
         return {
             "format": "csv",
@@ -197,7 +250,7 @@ def detect_csv_format(content: bytes, filename: str) -> Dict[str, Any]:
             "delimiter": best_delimiter,
             "has_header": has_header,
             "field_count": field_count,
-            "sample_rows": len(parsed_data),
+            "sample_rows": parsed_data,  # Return actual sample rows, not just count
             "field_analysis": field_analysis,
             "confidence": 0.95
         }
@@ -287,15 +340,29 @@ def analyze_field_type(values: List[str], field_index: int) -> Dict[str, Any]:
     }
     
     for value in non_empty_values:
-        # Test integer
-        if value.replace('-', '').isdigit():
+        # Test integer (exclude decimals)
+        if value.replace('-', '').isdigit() and '.' not in value:
             type_scores["integer"] += 1
+            continue  # Don't count as text if it's an integer
         
-        # Test decimal
+        # Test coordinates FIRST (before generic decimal check)
+        try:
+            coord = float(value)
+            if -180 <= coord <= 180:  # Likely longitude
+                type_scores["coordinate"] += 1
+                continue  # Don't count as generic decimal if it's a coordinate
+            elif -90 <= coord <= 90:  # Likely latitude
+                type_scores["coordinate"] += 1
+                continue  # Don't count as generic decimal if it's a coordinate
+        except:
+            pass
+        
+        # Test decimal (only if not already identified as coordinate)
         try:
             float(value)
             if '.' in value:
                 type_scores["decimal"] += 1
+                continue  # Don't count as text if it's a decimal
         except:
             pass
         
@@ -310,31 +377,19 @@ def analyze_field_type(values: List[str], field_index: int) -> Dict[str, Any]:
             if re.match(pattern, value):
                 type_scores["date"] += 1
                 break
-        
-        # Test boolean
-        if value.lower() in ['true', 'false', 'yes', 'no', '1', '0']:
-            type_scores["boolean"] += 1
-        
-        # Test UK postcode
-        if re.match(r'^[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}$', value.upper()):
-            type_scores["postcode"] += 1
-        
-        # Test UPRN (12-digit number)
-        if re.match(r'^\d{12}$', value):
-            type_scores["uprn"] += 1
-        
-        # Test coordinates
-        try:
-            coord = float(value)
-            if -180 <= coord <= 180:  # Likely longitude
-                type_scores["coordinate"] += 1
-            elif -90 <= coord <= 90:  # Likely latitude
-                type_scores["coordinate"] += 1
-        except:
-            pass
-        
-        # Default to text
-        type_scores["text"] += 1
+        else:
+            # Test boolean
+            if value.lower() in ['true', 'false', 'yes', 'no', '1', '0']:
+                type_scores["boolean"] += 1
+            # Test UK postcode
+            elif re.match(r'^[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}$', value.upper()):
+                type_scores["postcode"] += 1
+            # Test UPRN (12-digit number)
+            elif re.match(r'^\d{12}$', value):
+                type_scores["uprn"] += 1
+            # If none of the above, it's text
+            else:
+                type_scores["text"] += 1
     
     # Find best type
     best_type = max(type_scores.items(), key=lambda x: x[1])[0]
@@ -827,80 +882,232 @@ def preview_dbf_content(content: bytes, filename: str) -> Dict[str, Any]:
         return {"error": f"Failed to preview DBF: {str(e)}"}
 
 def identify_data_standards(field_analysis: List[Dict[str, Any]], filename: str) -> List[Dict[str, Any]]:
-    """Identify which data standards the file might follow"""
-    filename = filename or 'uploaded_file'
+    """Identify data standards based on field analysis and filename patterns"""
     identified_standards = []
     
-    # Extract field names and types
-    field_names = [field.get("name", f"field_{i}") for i, field in enumerate(field_analysis)]
-    field_types = [field.get("type", "unknown") for field in field_analysis]
+    # Extract field names and patterns
+    field_names = [field.get('field_name', '').lower() for field in field_analysis]
+    field_patterns = [field.get('sample_values', []) for field in field_analysis]
     
     # Check each standard
-    for standard_id, standard in DATA_STANDARDS.items():
-        score = 0
+    for standard_id, standard_info in DATA_STANDARDS.items():
+        confidence = 0.0
         matched_fields = []
+        matched_patterns = 0
         
         # Check required fields
-        for required_field in standard["required_fields"]:
-            for i, field_name in enumerate(field_names):
-                if required_field.lower() in field_name.lower():
-                    score += 2
-                    matched_fields.append(field_name)
+        required_fields = standard_info.get('required_fields', [])
+        for required_field in required_fields:
+            # Check for exact matches and partial matches
+            for field_name in field_names:
+                if required_field.lower() in field_name or field_name in required_field.lower():
+                    matched_fields.append(required_field)
+                    confidence += 0.3
                     break
         
         # Check field patterns
-        for pattern_name, pattern in standard["field_patterns"].items():
+        field_patterns_dict = standard_info.get('field_patterns', {})
+        for pattern_field, pattern in field_patterns_dict.items():
             for i, field_name in enumerate(field_names):
-                if re.search(pattern, field_name, re.IGNORECASE):
-                    score += 1
-                    matched_fields.append(field_name)
-                    break
+                if pattern_field.lower() in field_name or field_name in pattern_field.lower():
+                    # Check if sample values match the pattern
+                    if i < len(field_patterns) and field_patterns[i]:
+                        import re
+                        pattern_matches = sum(1 for value in field_patterns[i][:5] if re.match(pattern, str(value), re.IGNORECASE))
+                        if pattern_matches > 0:
+                            matched_patterns += 1
+                            confidence += 0.2
         
-        # Check filename patterns
-        if standard_id in filename.upper():
-            score += 1
+        # Check filename patterns for specific standards
+        filename_lower = filename.lower()
+        if standard_id == "OS_Standards" and any(term in filename_lower for term in ['os_', 'ordnance', 'survey', 'mastermap', 'addressbase']):
+            confidence += 0.4
+        elif standard_id == "VOA_NNDR" and any(term in filename_lower for term in ['voa', 'nndr', 'business_rates', 'rateable_value']):
+            confidence += 0.4
+        elif standard_id == "ONS_Standards" and any(term in filename_lower for term in ['ons', 'census', 'statistics', 'population']):
+            confidence += 0.4
+        elif standard_id == "BS7666" and any(term in filename_lower for term in ['address', 'uprn', 'usrn', 'bs7666']):
+            confidence += 0.4
+        elif standard_id == "INSPIRE" and any(term in filename_lower for term in ['inspire', 'spatial', 'geometry', 'gml']):
+            confidence += 0.4
         
-        # Calculate confidence
-        confidence = min(score / len(standard["required_fields"]), 1.0)
+        # Calculate final confidence
+        if len(required_fields) > 0:
+            field_match_ratio = len(matched_fields) / len(required_fields)
+            confidence += field_match_ratio * 0.3
         
-        if confidence > 0.3:  # Only include if reasonably confident
+        if matched_patterns > 0:
+            confidence += min(matched_patterns * 0.1, 0.3)
+        
+        # Only include standards with reasonable confidence
+        if confidence >= 0.2:
             identified_standards.append({
                 "standard_id": standard_id,
-                "name": standard["name"],
-                "description": standard["description"],
-                "governing_body": standard["governing_body"],
-                "country": standard["country"],
-                "confidence": confidence,
+                "name": standard_info["name"],
+                "description": standard_info["description"],
+                "confidence": min(confidence, 1.0),
                 "matched_fields": matched_fields,
-                "requirements": standard["required_fields"]
+                "governing_body": standard_info["governing_body"],
+                "country": standard_info["country"],
+                "compliance_score": calculate_compliance_score(standard_info, field_analysis)
             })
     
-    # Sort by confidence
+    # Sort by confidence (highest first)
     identified_standards.sort(key=lambda x: x["confidence"], reverse=True)
+    
     return identified_standards
+
+def calculate_compliance_score(standard_info: Dict[str, Any], field_analysis: List[Dict[str, Any]]) -> float:
+    """Calculate compliance score for a data standard"""
+    required_fields = standard_info.get('required_fields', [])
+    field_names = [field.get('field_name', '').lower() for field in field_analysis]
+    
+    if not required_fields:
+        return 0.0
+    
+    matched_required = 0
+    for required_field in required_fields:
+        for field_name in field_names:
+            if required_field.lower() in field_name or field_name in required_field.lower():
+                matched_required += 1
+                break
+    
+    return matched_required / len(required_fields)
+
+def generate_compliance_recommendations(standards: List[Dict[str, Any]], analysis: Dict[str, Any]) -> List[str]:
+    """Generate recommendations for improving compliance with identified standards"""
+    recommendations = []
+    
+    for standard in standards:
+        if standard["compliance_score"] < 0.8:
+            missing_fields = []
+            required_fields = DATA_STANDARDS[standard["standard_id"]]["required_fields"]
+            field_names = [field.get('field_name', '').lower() for field in analysis.get("field_analysis", [])]
+            
+            for required_field in required_fields:
+                if not any(required_field.lower() in field_name or field_name in required_field.lower() for field_name in field_names):
+                    missing_fields.append(required_field)
+            
+            if missing_fields:
+                recommendations.append(f"Add missing fields for {standard['name']}: {', '.join(missing_fields)}")
+        
+        if standard["confidence"] < 0.7:
+            recommendations.append(f"Verify compliance with {standard['name']} - low confidence match")
+    
+    return recommendations
+
+def assess_data_quality(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Assess the quality of the uploaded data"""
+    quality_score = 0.0
+    issues = []
+    strengths = []
+    
+    field_analysis = analysis.get("field_analysis", [])
+    
+    if not field_analysis:
+        return {
+            "score": 0.0,
+            "issues": ["No field analysis available"],
+            "strengths": [],
+            "overall_rating": "Poor"
+        }
+    
+    # Check for required fields
+    required_field_patterns = ['id', 'name', 'code', 'reference', 'identifier']
+    has_identifier = any(any(pattern in field.get('field_name', '').lower() for pattern in required_field_patterns) 
+                        for field in field_analysis)
+    
+    if has_identifier:
+        quality_score += 0.2
+        strengths.append("Contains identifier fields")
+    else:
+        issues.append("Missing identifier fields")
+    
+    # Check data consistency
+    consistent_types = 0
+    for field in field_analysis:
+        if field.get('confidence', 0) > 0.8:
+            consistent_types += 1
+    
+    type_consistency = consistent_types / len(field_analysis) if field_analysis else 0
+    quality_score += type_consistency * 0.3
+    
+    if type_consistency > 0.8:
+        strengths.append("High data type consistency")
+    elif type_consistency < 0.5:
+        issues.append("Low data type consistency")
+    
+    # Check for spatial data
+    spatial_fields = [field for field in field_analysis if 'geometry' in field.get('field_name', '').lower() or 'coordinate' in field.get('field_name', '').lower()]
+    if spatial_fields:
+        quality_score += 0.2
+        strengths.append("Contains spatial data")
+    
+    # Check for date/time fields
+    date_fields = [field for field in field_analysis if 'date' in field.get('field_name', '').lower() or 'time' in field.get('field_name', '').lower()]
+    if date_fields:
+        quality_score += 0.1
+        strengths.append("Contains temporal data")
+    
+    # Check field count
+    if len(field_analysis) >= 5:
+        quality_score += 0.1
+        strengths.append("Reasonable number of fields")
+    elif len(field_analysis) < 3:
+        issues.append("Very few fields - may be incomplete")
+    
+    # Determine overall rating
+    if quality_score >= 0.8:
+        overall_rating = "Excellent"
+    elif quality_score >= 0.6:
+        overall_rating = "Good"
+    elif quality_score >= 0.4:
+        overall_rating = "Fair"
+    else:
+        overall_rating = "Poor"
+    
+    return {
+        "score": min(quality_score, 1.0),
+        "issues": issues,
+        "strengths": strengths,
+        "overall_rating": overall_rating,
+        "field_count": len(field_analysis),
+        "spatial_fields": len(spatial_fields),
+        "temporal_fields": len(date_fields)
+    }
 
 @router.post("/ai/analyze-file")
 async def analyze_file(file: UploadFile = File(...)):
     """AI-powered file analysis to detect format, structure, and data standards"""
     try:
-        # Read file content
-        content = await file.read()
+        print(f"Starting analysis for file: {file.filename}")
+        
+        # Read only first 1MB for fast analysis
+        content = await file.read(1024 * 1024)  # 1MB chunk
+        print(f"Read {len(content)} bytes from file")
         
         # Detect file type
         filename = file.filename or "uploaded_file"
         file_extension = Path(filename).suffix.lower()
         mime_type = file.content_type
         
+        print(f"File extension: {file_extension}, MIME type: {mime_type}")
+        
         # Analyze based on file type
         if file_extension == '.csv' or mime_type == 'text/csv':
+            print("Detecting CSV format...")
             analysis = detect_csv_format(content, filename)
         elif file_extension == '.json' or mime_type == 'application/json':
+            print("Detecting JSON format...")
             analysis = detect_json_format(content, filename)
         elif file_extension in ['.xml', '.gml'] or mime_type in ['application/xml', 'text/xml']:
+            print("Detecting XML format...")
             analysis = detect_xml_format(content, filename)
         elif file_extension == '.zip' or mime_type == 'application/zip':
+            print("Detecting ZIP format...")
             analysis = detect_zip_format(content, filename)
         else:
+            print("Attempting format detection from content...")
             # Try to detect format from content
             if content.startswith(b'{') or content.startswith(b'['):
                 analysis = detect_json_format(content, filename)
@@ -910,7 +1117,10 @@ async def analyze_file(file: UploadFile = File(...)):
                 # Assume CSV and try to detect
                 analysis = detect_csv_format(content, filename)
         
+        print(f"Analysis result keys: {list(analysis.keys()) if isinstance(analysis, dict) else 'Not a dict'}")
+        
         if "error" in analysis:
+            print(f"Analysis error: {analysis['error']}")
             raise HTTPException(status_code=400, detail=analysis["error"])
         
         # Add file metadata
@@ -918,14 +1128,33 @@ async def analyze_file(file: UploadFile = File(...)):
         analysis["file_size"] = len(content)
         analysis["mime_type"] = mime_type
         
+        # Limit sample rows for faster response
+        if "sample_rows" in analysis and isinstance(analysis["sample_rows"], list) and len(analysis["sample_rows"]) > 10:
+            analysis["sample_rows"] = analysis["sample_rows"][:10]
+        
         # Identify data standards if we have field analysis
         if "field_analysis" in analysis:
+            print("Identifying data standards...")
             standards = identify_data_standards(analysis["field_analysis"], filename or 'uploaded_file')
             analysis["identified_standards"] = standards
+            
+            # Add government body analysis
+            if standards:
+                analysis["primary_governing_body"] = standards[0]["governing_body"]
+                analysis["compliance_analysis"] = {
+                    "overall_compliance": sum(s["compliance_score"] for s in standards) / len(standards),
+                    "standards_count": len(standards),
+                    "recommended_actions": generate_compliance_recommendations(standards, analysis)
+                }
         
         # Generate recommendations
+        print("Generating recommendations...")
         analysis["recommendations"] = generate_recommendations(analysis)
         
+        # Add data quality assessment
+        analysis["data_quality"] = assess_data_quality(analysis)
+        
+        print("Analysis completed successfully")
         return {
             "success": True,
             "analysis": analysis,
@@ -933,6 +1162,9 @@ async def analyze_file(file: UploadFile = File(...)):
         }
         
     except Exception as e:
+        print(f"Analysis failed with error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 @router.post("/ai/generate-mappings")
@@ -1212,32 +1444,23 @@ def determine_field_data_type(field_name: str, analysis_data: dict) -> str:
     else:
         return "text"  # Default to text
 
-def determine_postgis_type(field_name: str, data_type: str, analysis_data: dict) -> str:
+def determine_postgis_type(field_name: str, data_type: str, analysis_data: dict) -> Optional[str]:
     """Determine the appropriate PostGIS type for a field"""
-    if data_type == "postcode":
-        return "VARCHAR(8)"
-    elif data_type == "uprn":
-        return "BIGINT"
-    elif data_type == "usrn":
-        return "BIGINT"
-    elif data_type == "coordinate":
-        return "DECIMAL(10, 6)"
-    elif data_type == "date":
-        return "DATE"
-    elif data_type == "decimal":
-        return "DECIMAL(15, 2)"
-    elif data_type == "integer":
-        return "INTEGER"
-    elif data_type == "boolean":
-        return "BOOLEAN"
-    elif data_type == "text":
-        # Estimate length based on field name
-        if any(pattern in field_name.lower() for pattern in ['description', 'notes', 'comments']):
-            return "TEXT"
+    # Only return PostGIS geometry types, not regular PostgreSQL types
+    if data_type == "geometry":
+        # Check field name for specific geometry types
+        field_lower = field_name.lower()
+        if any(pattern in field_lower for pattern in ['point', 'lat', 'lon', 'latitude', 'longitude']):
+            return "POINT"
+        elif any(pattern in field_lower for pattern in ['line', 'linestring', 'road', 'street']):
+            return "LINESTRING"
+        elif any(pattern in field_lower for pattern in ['polygon', 'boundary', 'area', 'shape']):
+            return "POLYGON"
         else:
-            return "VARCHAR(255)"
+            return "POINT"  # Default to POINT for geometry fields
     else:
-        return "VARCHAR(255)"
+        # Return None for non-geometry fields - PostGIS type should only be set for geometry fields
+        return None
 
 def generate_field_constraints(field_name: str, data_type: str, analysis_data: dict) -> List[str]:
     """Generate appropriate constraints for a field"""
@@ -1341,6 +1564,14 @@ async def get_data_standards():
         "count": len(DATA_STANDARDS)
     }
 
+@router.get("/test")
+async def test_endpoint():
+    """Test endpoint to verify the router is working"""
+    return {
+        "message": "Design Enhanced API is working",
+        "timestamp": datetime.now().isoformat()
+    }
+
 # Placeholder endpoints for backward compatibility (to prevent 404 errors)
 @router.get("/ai/knowledge")
 async def get_ai_knowledge_placeholder(
@@ -1435,10 +1666,36 @@ async def get_dataset_structures(
 async def create_dataset_structure(
     structure_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin_or_power)
+    current_user: User = Depends(require_admin_or_power)
 ):
     """Create new dataset structure"""
     try:
+        print(f"[STRUCTURE_CREATE] Starting structure creation")
+        print(f"[STRUCTURE_CREATE] Structure data: {structure_data}")
+        print(f"[STRUCTURE_CREATE] Current user: {current_user.username}")
+        
+        # Check for existing structure with same name and generate unique name if needed
+        original_name = structure_data["dataset_name"]
+        dataset_name = original_name
+        counter = 1
+        
+        while True:
+            check_query = "SELECT structure_id FROM design_enhanced.dataset_structures WHERE dataset_name = :dataset_name AND is_active = true"
+            existing = db.execute(text(check_query), {"dataset_name": dataset_name}).fetchone()
+            
+            if not existing:
+                break
+            
+            print(f"[STRUCTURE_CREATE] Name '{dataset_name}' already exists, trying with suffix")
+            dataset_name = f"{original_name} ({counter})"
+            counter += 1
+            
+            if counter > 100:  # Prevent infinite loop
+                raise HTTPException(status_code=400, detail="Unable to generate unique dataset name")
+        
+        if dataset_name != original_name:
+            print(f"[STRUCTURE_CREATE] Using unique name: {dataset_name}")
+        
         structure_id = str(uuid.uuid4())
         query = """
             INSERT INTO design_enhanced.dataset_structures 
@@ -1448,31 +1705,225 @@ async def create_dataset_structure(
                     :governing_body, :data_standards, :business_owner, :data_steward, :created_by, :tags)
         """
         
-        db.execute(text(query), {
+        # Map source_type to valid database values
+        source_type = structure_data.get("source_type", "file")
+        if source_type in ["csv", "json", "xml", "excel"]:
+            source_type = "file"  # These are file formats, not source types
+        
+        params = {
             "structure_id": structure_id,
-            "dataset_name": structure_data["dataset_name"],
+            "dataset_name": dataset_name,
             "description": structure_data.get("description", ""),
-            "source_type": structure_data.get("source_type", "file"),
+            "source_type": source_type,
             "file_formats": json.dumps(structure_data.get("file_formats", [])),
             "governing_body": structure_data.get("governing_body"),
             "data_standards": json.dumps(structure_data.get("data_standards", [])),
             "business_owner": structure_data.get("business_owner"),
             "data_steward": structure_data.get("data_steward"),
-            "created_by": current_user["username"],
+            "created_by": current_user.username,
             "tags": json.dumps(structure_data.get("tags", []))
-        })
+        }
+        
+        print(f"[STRUCTURE_CREATE] Executing query with params: {params}")
+        
+        db.execute(text(query), params)
         db.commit()
         
+        print(f"[STRUCTURE_CREATE] Structure created successfully with ID: {structure_id}")
+        
         return {"message": "Dataset structure created successfully", "structure_id": structure_id}
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
+        print(f"[STRUCTURE_CREATE] Error occurred: {str(e)}")
+        print(f"[STRUCTURE_CREATE] Error type: {type(e).__name__}")
+        import traceback
+        print(f"[STRUCTURE_CREATE] Full traceback: {traceback.format_exc()}")
+        
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error creating dataset structure: {str(e)}")
+
+@router.put("/structures/{structure_id}")
+async def update_dataset_structure(
+    structure_id: str,
+    structure_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_power)
+):
+    """Update existing dataset structure"""
+    try:
+        # Map source_type to valid database values
+        source_type = structure_data.get("source_type", "file")
+        if source_type in ["csv", "json", "xml", "excel"]:
+            source_type = "file"  # These are file formats, not source types
+        
+        query = """
+            UPDATE design_enhanced.dataset_structures 
+            SET dataset_name = :dataset_name,
+                description = :description,
+                source_type = :source_type,
+                file_formats = :file_formats,
+                governing_body = :governing_body,
+                data_standards = :data_standards,
+                business_owner = :business_owner,
+                data_steward = :data_steward,
+                tags = :tags,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE structure_id = :structure_id
+        """
+        
+        params = {
+            "structure_id": structure_id,
+            "dataset_name": structure_data["dataset_name"],
+            "description": structure_data.get("description", ""),
+            "source_type": source_type,
+            "file_formats": json.dumps(structure_data.get("file_formats", [])),
+            "governing_body": structure_data.get("governing_body"),
+            "data_standards": json.dumps(structure_data.get("data_standards", [])),
+            "business_owner": structure_data.get("business_owner"),
+            "data_steward": structure_data.get("data_steward"),
+            "tags": json.dumps(structure_data.get("tags", []))
+        }
+        
+        db.execute(text(query), params)
+        db.commit()
+        
+        # Check if structure exists
+        check_query = "SELECT structure_id FROM design_enhanced.dataset_structures WHERE structure_id = :structure_id"
+        check_result = db.execute(text(check_query), {"structure_id": structure_id}).fetchone()
+        
+        if not check_result:
+            raise HTTPException(status_code=404, detail="Dataset structure not found")
+        
+        return {"message": "Dataset structure updated successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error updating dataset structure: {str(e)}")
+
+@router.delete("/structures/{structure_id}")
+async def delete_dataset_structure(
+    structure_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_power)
+):
+    """Delete a dataset structure and all its associated references"""
+    try:
+        print(f"[DELETE] Starting delete operation for structure_id: {structure_id}")
+        print(f"[DELETE] Current user: {current_user.username}")
+        
+        # Check if structure exists
+        check_query = "SELECT structure_id, dataset_name FROM design_enhanced.dataset_structures WHERE structure_id = :structure_id AND is_active = true"
+        print(f"[DELETE] Executing check query: {check_query}")
+        
+        check_result = db.execute(text(check_query), {"structure_id": structure_id}).fetchone()
+        print(f"[DELETE] Check result: {check_result}")
+        
+        if not check_result:
+            print(f"[DELETE] Structure not found: {structure_id}")
+            raise HTTPException(status_code=404, detail="Dataset structure not found")
+        
+        dataset_name = check_result[1]  # dataset_name is the second column
+        print(f"[DELETE] Found structure: {dataset_name}")
+        
+        # Get counts of related records for logging
+        field_count_query = "SELECT COUNT(*) FROM design_enhanced.field_definitions WHERE structure_id = :structure_id"
+        template_count_query = "SELECT COUNT(*) FROM design_enhanced.table_templates WHERE structure_id = :structure_id AND is_active = true"
+        mapping_count_query = "SELECT COUNT(*) FROM design_enhanced.field_mappings WHERE structure_id = :structure_id"
+        upload_count_query = "SELECT COUNT(*) FROM design_enhanced.dataset_uploads WHERE structure_id = :structure_id"
+        review_count_query = "SELECT COUNT(*) FROM design_enhanced.review_workflow WHERE structure_id = :structure_id"
+        
+        field_count = db.execute(text(field_count_query), {"structure_id": structure_id}).scalar() or 0
+        template_count = db.execute(text(template_count_query), {"structure_id": structure_id}).scalar() or 0
+        mapping_count = db.execute(text(mapping_count_query), {"structure_id": structure_id}).scalar() or 0
+        upload_count = db.execute(text(upload_count_query), {"structure_id": structure_id}).scalar() or 0
+        review_count = db.execute(text(review_count_query), {"structure_id": structure_id}).scalar() or 0
+        
+        print(f"[DELETE] Related records found: {field_count} fields, {template_count} templates, {mapping_count} mappings, {upload_count} uploads, {review_count} reviews")
+        
+        # Delete all related records first (in reverse dependency order)
+        print(f"[DELETE] Deleting related records...")
+        
+        # 1. Delete review workflow records (they reference uploads and structures)
+        if review_count > 0:
+            review_delete_query = "DELETE FROM design_enhanced.review_workflow WHERE structure_id = :structure_id"
+            db.execute(text(review_delete_query), {"structure_id": structure_id})
+            print(f"[DELETE] Deleted {review_count} review workflow records")
+        
+        # 2. Delete dataset uploads
+        if upload_count > 0:
+            upload_delete_query = "DELETE FROM design_enhanced.dataset_uploads WHERE structure_id = :structure_id"
+            db.execute(text(upload_delete_query), {"structure_id": structure_id})
+            print(f"[DELETE] Deleted {upload_count} dataset uploads")
+        
+        # 3. Delete field mappings
+        if mapping_count > 0:
+            mapping_delete_query = "DELETE FROM design_enhanced.field_mappings WHERE structure_id = :structure_id"
+            db.execute(text(mapping_delete_query), {"structure_id": structure_id})
+            print(f"[DELETE] Deleted {mapping_count} field mappings")
+        
+        # 4. Delete generated tables (they reference templates and structures)
+        generated_tables_query = "SELECT COUNT(*) FROM design_enhanced.generated_tables WHERE structure_id = :structure_id"
+        generated_count = db.execute(text(generated_tables_query), {"structure_id": structure_id}).scalar() or 0
+        if generated_count > 0:
+            generated_delete_query = "DELETE FROM design_enhanced.generated_tables WHERE structure_id = :structure_id"
+            db.execute(text(generated_delete_query), {"structure_id": structure_id})
+            print(f"[DELETE] Deleted {generated_count} generated tables")
+        
+        # 5. Delete table templates
+        if template_count > 0:
+            template_delete_query = "DELETE FROM design_enhanced.table_templates WHERE structure_id = :structure_id"
+            db.execute(text(template_delete_query), {"structure_id": structure_id})
+            print(f"[DELETE] Deleted {template_count} table templates")
+        
+        # 6. Delete field definitions
+        if field_count > 0:
+            field_delete_query = "DELETE FROM design_enhanced.field_definitions WHERE structure_id = :structure_id"
+            db.execute(text(field_delete_query), {"structure_id": structure_id})
+            print(f"[DELETE] Deleted {field_count} field definitions")
+        
+        # 7. Finally, delete the structure itself
+        structure_delete_query = "DELETE FROM design_enhanced.dataset_structures WHERE structure_id = :structure_id"
+        print(f"[DELETE] Executing structure delete query: {structure_delete_query}")
+        
+        structure_result = db.execute(text(structure_delete_query), {
+            "structure_id": structure_id
+        })
+        print(f"[DELETE] Structure delete executed successfully")
+        
+        db.commit()
+        print(f"[DELETE] Transaction committed successfully")
+        
+        return {
+            "message": f"Dataset structure '{dataset_name}' and all related records deleted successfully",
+            "deleted_records": {
+                "fields": field_count,
+                "templates": template_count,
+                "mappings": mapping_count,
+                "uploads": upload_count,
+                "reviews": review_count,
+                "generated_tables": generated_count
+            }
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        print(f"[DELETE] Error occurred: {str(e)}")
+        print(f"[DELETE] Error type: {type(e).__name__}")
+        import traceback
+        print(f"[DELETE] Full traceback: {traceback.format_exc()}")
+        
+        db.rollback()
+        print(f"[DELETE] Transaction rolled back")
+        
+        raise HTTPException(status_code=500, detail=f"Error deleting dataset structure: {str(e)}")
 
 @router.get("/structures/{structure_id}")
 async def get_dataset_structure(
     structure_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_authenticated_user)
+    current_user: User = Depends(require_authenticated_user)
 ):
     """Get specific dataset structure with field definitions"""
     try:
@@ -1529,10 +1980,14 @@ async def create_field_definition(
     structure_id: str,
     field_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin_or_power)
+    current_user: User = Depends(require_admin_or_power)
 ):
     """Create new field definition"""
     try:
+        print(f"[FIELD_CREATE] Creating field for structure_id: {structure_id}")
+        print(f"[FIELD_CREATE] Field data: {field_data}")
+        print(f"[FIELD_CREATE] Current user: {current_user.username}")
+        
         field_id = str(uuid.uuid4())
         query = """
             INSERT INTO design_enhanced.field_definitions 
@@ -1546,7 +2001,7 @@ async def create_field_definition(
                     :transformation_rules, :sequence_order, :created_by)
         """
         
-        db.execute(text(query), {
+        params = {
             "field_id": field_id,
             "structure_id": structure_id,
             "field_name": field_data["field_name"],
@@ -1565,12 +2020,23 @@ async def create_field_definition(
             "validation_rules": json.dumps(field_data.get("validation_rules", [])),
             "transformation_rules": json.dumps(field_data.get("transformation_rules", [])),
             "sequence_order": field_data["sequence_order"],
-            "created_by": current_user["username"]
-        })
+            "created_by": current_user.username
+        }
+        
+        print(f"[FIELD_CREATE] Executing query with params: {params}")
+        
+        db.execute(text(query), params)
         db.commit()
+        
+        print(f"[FIELD_CREATE] Field created successfully with ID: {field_id}")
         
         return {"message": "Field definition created successfully", "field_id": field_id}
     except Exception as e:
+        print(f"[FIELD_CREATE] Error occurred: {str(e)}")
+        print(f"[FIELD_CREATE] Error type: {type(e).__name__}")
+        import traceback
+        print(f"[FIELD_CREATE] Full traceback: {traceback.format_exc()}")
+        
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error creating field definition: {str(e)}")
 
@@ -1613,7 +2079,7 @@ async def get_table_templates(
 async def create_table_template(
     template_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin_or_power)
+    current_user: User = Depends(require_admin_or_power)
 ):
     """Create new table template"""
     try:
@@ -1643,7 +2109,7 @@ async def create_table_template(
             "postgis_enabled": template_data.get("postgis_enabled", False),
             "indexes_config": json.dumps(template_data.get("indexes_config", [])),
             "constraints_config": json.dumps(template_data.get("constraints_config", [])),
-            "created_by": current_user["username"]
+            "created_by": current_user.username
         })
         db.commit()
         
@@ -1658,7 +2124,7 @@ async def generate_table(
     template_id: str,
     generation_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin_or_power)
+    current_user: User = Depends(require_admin_or_power)
 ):
     """Generate table from template"""
     try:
@@ -1716,7 +2182,7 @@ async def generate_table(
             "ddl_script": ddl_script,
             "postgis_fields": json.dumps(postgis_fields),
             "field_mappings": json.dumps(field_mappings),
-            "created_by": current_user["username"]
+            "created_by": current_user.username
         })
         db.commit()
         
@@ -1756,7 +2222,7 @@ async def create_field_mapping(
     structure_id: str,
     mapping_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_admin_or_power)
+    current_user: User = Depends(require_admin_or_power)
 ):
     """Create new field mapping"""
     try:
@@ -1779,7 +2245,7 @@ async def create_field_mapping(
             "lookup_config": json.dumps(mapping_data.get("lookup_config", {})),
             "validation_rules": json.dumps(mapping_data.get("validation_rules", [])),
             "is_required": mapping_data.get("is_required", False),
-            "created_by": current_user["username"]
+            "created_by": current_user.username
         })
         db.commit()
         
@@ -1794,7 +2260,7 @@ async def create_dataset_upload(
     structure_id: str,
     upload_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_authenticated_user)
+    current_user: User = Depends(require_authenticated_user)
 ):
     """Create new dataset upload"""
     try:
@@ -1821,7 +2287,7 @@ async def create_dataset_upload(
             "validation_results": json.dumps(upload_data.get("validation_results", {})),
             "processing_status": upload_data.get("processing_status", "uploaded"),
             "target_table_name": upload_data.get("target_table_name"),
-            "uploaded_by": current_user["username"]
+            "uploaded_by": current_user.username
         })
         db.commit()
         
@@ -1836,7 +2302,7 @@ async def create_review(
     upload_id: str,
     review_data: dict,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_authenticated_user)
+    current_user: User = Depends(require_authenticated_user)
 ):
     """Create new review for upload"""
     try:
@@ -1854,7 +2320,7 @@ async def create_review(
             "upload_id": upload_id,
             "structure_id": review_data["structure_id"],
             "review_type": review_data["review_type"],
-            "reviewer_id": current_user["username"],
+            "reviewer_id": current_user.username,
             "review_status": review_data.get("review_status", "pending"),
             "review_notes": review_data.get("review_notes"),
             "required_changes": json.dumps(review_data.get("required_changes", [])),

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
+import FilePreviewWithAI from '../components/FilePreviewWithAI';
 import {
   Container,
   Grid,
@@ -53,6 +54,7 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  DeleteOutline as DeleteOutlineIcon,
   Visibility as ViewIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
@@ -114,13 +116,20 @@ const DesignSystemEnhanced = () => {
   const [mappingDialog, setMappingDialog] = useState(false);
   const [uploadDialog, setUploadDialog] = useState(false);
   const [reviewDialog, setReviewDialog] = useState(false);
+  const [tableStructureDialog, setTableStructureDialog] = useState(false);
   
   // Stepper and AI Analysis
   const [activeStep, setActiveStep] = useState(0);
   const [aiAnalysis, setAiAnalysis] = useState(null);
-  const [selectedHeaderFile, setSelectedHeaderFile] = useState(null);
-  const [selectedDataFiles, setSelectedDataFiles] = useState([]);
   const [generatedMappings, setGeneratedMappings] = useState(null);
+  
+  // Table Structure View
+  const [structureFields, setStructureFields] = useState([]);
+  const [selectedStructureForView, setSelectedStructureForView] = useState(null);
+  
+  // Delete Confirmation
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [structureToDelete, setStructureToDelete] = useState(null);
   
   // Form States
   const [newStructure, setNewStructure] = useState({
@@ -128,8 +137,13 @@ const DesignSystemEnhanced = () => {
     description: '',
     source_type: '',
     category: '',
-    version: '1.0'
+    version: '1.0',
+    data_type: 'file' // Add data type field
   });
+  
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingStructure, setEditingStructure] = useState(null);
   
   const [newField, setNewField] = useState({
     name: '',
@@ -179,34 +193,254 @@ const DesignSystemEnhanced = () => {
     }
   };
 
+  const loadStructureFields = async (structureId) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/api/design-enhanced/structures/${structureId}/fields`);
+      setStructureFields(response.data.fields || []);
+    } catch (error) {
+      showMessage('Error loading structure fields: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewTableStructure = async (structure) => {
+    setSelectedStructureForView(structure);
+    await loadStructureFields(structure.structure_id);
+    setTableStructureDialog(true);
+  };
+
+  const autoPopulateFromAnalysis = (analysisData) => {
+    if (!analysisData) return;
+    
+    const updatedStructure = { ...newStructure };
+    
+    // Auto-populate name from filename
+    if (analysisData.filename && !updatedStructure.name) {
+      const cleanName = analysisData.filename.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9\s]/g, " ").trim();
+      updatedStructure.name = cleanName;
+    }
+    
+    // Auto-populate source type from detected format
+    if (analysisData.format && !updatedStructure.source_type) {
+      updatedStructure.source_type = analysisData.format.toLowerCase();
+    }
+    
+    // Auto-populate category from governing body
+    if (analysisData.primary_governing_body && !updatedStructure.category) {
+      updatedStructure.category = analysisData.primary_governing_body;
+    }
+    
+    // Auto-populate description from analysis
+    if (analysisData.identified_standards && analysisData.identified_standards.length > 0 && !updatedStructure.description) {
+      const standards = analysisData.identified_standards.map(s => s.name).join(", ");
+      updatedStructure.description = `AI-detected standards: ${standards}. ${analysisData.field_count || 0} fields identified.`;
+    }
+    
+    setNewStructure(updatedStructure);
+  };
+
+  const handleDeleteStructure = async (structure) => {
+    setStructureToDelete(structure);
+    setDeleteDialog(true);
+  };
+
+  const confirmDeleteStructure = async () => {
+    if (!structureToDelete) return;
+    
+    try {
+      setLoading(true);
+      await api.delete(`/api/design-enhanced/structures/${structureToDelete.structure_id}`);
+      
+      showMessage(`Dataset structure '${structureToDelete.dataset_name}' deleted successfully`, 'success');
+      
+      // Refresh the structures list
+      await loadAllData();
+      
+      // Close dialogs
+      setDeleteDialog(false);
+      setStructureToDelete(null);
+    } catch (error) {
+      showMessage('Error deleting structure: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateStructure = async () => {
     try {
       setLoading(true);
       const structureData = {
         dataset_name: newStructure.name,
         description: newStructure.description,
-        source_type: newStructure.source_type,
+        source_type: newStructure.data_type, // Use data_type instead of source_type for database
         file_formats: [newStructure.source_type],
         governing_body: newStructure.category,
         data_standards: aiAnalysis?.identified_standards?.map(s => s.standard_id) || [],
         tags: [newStructure.category]
       };
       
-      const response = await api.post('/api/design-enhanced/structures', structureData);
+      let response;
+      let structureId;
+      
+      if (isEditMode && editingStructure) {
+        // Update existing structure
+        response = await api.put(`/api/design-enhanced/structures/${editingStructure.structure_id}`, structureData);
+        structureId = editingStructure.structure_id;
+        showMessage('Dataset structure updated successfully!', 'success');
+      } else {
+        // Create new structure
+        response = await api.post('/api/design-enhanced/structures', structureData);
+        structureId = response.data.structure_id;
+        showMessage('Dataset structure created successfully!', 'success');
+      }
+      
+      // Auto-create field definitions from AI analysis or generated mappings
+      if (structureId) {
+        try {
+          console.log('Debug: AI Analysis available:', !!aiAnalysis);
+          console.log('Debug: AI Analysis field_analysis:', aiAnalysis?.field_analysis);
+          console.log('Debug: Generated mappings:', generatedMappings);
+          console.log('Debug: Generated mappings field_mappings:', generatedMappings?.field_mappings);
+          
+          if (generatedMappings?.field_mappings && generatedMappings.field_mappings.length > 0) {
+            // Use generated mappings if available
+            console.log('Debug: Creating fields from mappings, count:', generatedMappings.field_mappings.length);
+            await createFieldsFromMappings(structureId, generatedMappings);
+            showMessage(`Created ${generatedMappings.field_mappings.length} field definitions from AI mappings!`, 'success');
+          } else if (aiAnalysis?.field_analysis && aiAnalysis.field_analysis.length > 0) {
+            // Fall back to field analysis
+            console.log('Debug: Creating fields from analysis, count:', aiAnalysis.field_analysis.length);
+            await createFieldsFromAnalysis(structureId, aiAnalysis);
+            showMessage(`Created ${aiAnalysis.field_analysis.length} field definitions automatically!`, 'success');
+          } else {
+            console.log('Debug: No field data available for creation');
+            showMessage('No field data available from AI analysis', 'warning');
+          }
+        } catch (fieldError) {
+          console.error('Error creating fields:', fieldError);
+          showMessage('Structure created but field creation failed: ' + fieldError.message, 'warning');
+        }
+      }
       
       // Reload structures to get the updated list
       const structuresResponse = await api.get('/api/design-enhanced/structures');
       setDatasetStructures(structuresResponse.data.structures || []);
       
-      setStructureDialog(false);
+      // Reset form and close dialog
+      setNewStructure({
+        name: '',
+        description: '',
+        source_type: '',
+        category: '',
+        version: '1.0',
+        data_type: 'file'
+      });
+      setIsEditMode(false);
+      setEditingStructure(null);
       setActiveStep(0);
       setAiAnalysis(null);
-      setNewStructure({ name: '', description: '', source_type: '', category: '', version: '1.0' });
-      showMessage('Dataset structure created successfully', 'success');
+      setGeneratedMappings(null);
+      setStructureDialog(false);
     } catch (error) {
       showMessage('Error creating structure: ' + error.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createFieldsFromAnalysis = async (structureId, analysis) => {
+    const fieldAnalysis = analysis.field_analysis || [];
+    console.log('Debug: createFieldsFromAnalysis called with structureId:', structureId);
+    console.log('Debug: fieldAnalysis length:', fieldAnalysis.length);
+    console.log('Debug: fieldAnalysis data:', fieldAnalysis);
+    
+    for (let i = 0; i < fieldAnalysis.length; i++) {
+      const field = fieldAnalysis[i];
+      console.log(`Debug: Processing field ${i + 1}:`, field);
+      
+      // Determine field type and PostGIS type
+      let fieldType = field.type || 'text';
+      let postgisType = null; // Only set for actual geometry fields
+      
+      switch (fieldType.toLowerCase()) {
+        case 'integer':
+        case 'number':
+          fieldType = 'integer';
+          break;
+        case 'decimal':
+        case 'float':
+          fieldType = 'numeric';
+          break;
+        case 'date':
+          fieldType = 'date';
+          break;
+        case 'timestamp':
+          fieldType = 'timestamp';
+          break;
+        case 'boolean':
+          fieldType = 'boolean';
+          break;
+        case 'geometry':
+          fieldType = 'geometry';
+          postgisType = 'POINT'; // Only set PostGIS type for geometry fields
+          break;
+        default:
+          fieldType = 'text';
+      }
+      
+      const fieldData = {
+        field_name: field.field_name || `field_${i + 1}`,
+        display_name: field.field_name || `Field ${i + 1}`,
+        field_type: fieldType,
+        postgis_type: postgisType, // Will be null for non-geometry fields
+        is_required: false,
+        is_primary_key: i === 0, // First field as primary key
+        default_value: '',
+        constraints: '',
+        description: field.description || `Auto-generated from AI analysis`,
+        sequence_order: i + 1
+      };
+      
+      console.log(`Debug: Creating field with data:`, fieldData);
+      
+      try {
+        const response = await api.post(`/api/design-enhanced/structures/${structureId}/fields`, fieldData);
+        console.log(`Debug: Field ${i + 1} created successfully:`, response.data);
+      } catch (error) {
+        console.error(`Debug: Error creating field ${i + 1}:`, error);
+        throw error;
+      }
+    }
+  };
+
+  const createFieldsFromMappings = async (structureId, mappings) => {
+    const fieldMappings = mappings.field_mappings || [];
+    
+    for (let i = 0; i < fieldMappings.length; i++) {
+      const mapping = fieldMappings[i];
+      
+      // Only set postgis_type for actual geometry fields
+      let postgisType = null;
+      if (mapping.data_type === 'geometry' && mapping.postgis_type) {
+        postgisType = mapping.postgis_type;
+      }
+      
+      const fieldData = {
+        field_name: mapping.staging_field || mapping.source_field,
+        display_name: mapping.source_field,
+        field_type: mapping.data_type || 'text',
+        postgis_type: postgisType, // Will be null for non-geometry fields
+        is_required: mapping.is_required || false,
+        is_primary_key: mapping.is_primary_key || false,
+        default_value: mapping.default_value || '',
+        constraints: mapping.constraints || '',
+        description: mapping.description || `Auto-generated from AI mapping: ${mapping.source_field}`,
+        sequence_order: mapping.sequence_order || i + 1
+      };
+      
+      await api.post(`/api/design-enhanced/structures/${structureId}/fields`, fieldData);
     }
   };
 
@@ -216,22 +450,22 @@ const DesignSystemEnhanced = () => {
       const fieldData = {
         field_name: newField.name,
         display_name: newField.display_name,
-        data_type: newField.data_type,
+        field_type: newField.data_type,
         postgis_type: newField.postgis_type,
         is_required: newField.is_required,
         is_primary_key: newField.is_primary_key,
         default_value: newField.default_value,
         constraints: newField.constraints,
-        description: newField.description,
-        sequence_order: 1
+        description: newField.description
       };
       
       const response = await api.post(`/api/design-enhanced/structures/${selectedStructure.structure_id}/fields`, fieldData);
+      
       setFieldDialog(false);
       setNewField({ name: '', display_name: '', data_type: '', postgis_type: '', is_required: false, is_primary_key: false, default_value: '', constraints: '', description: '' });
-      showMessage('Field created successfully', 'success');
+      showMessage('Field added successfully', 'success');
     } catch (error) {
-      showMessage('Error creating field: ' + error.message, 'error');
+      showMessage('Error adding field: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -245,7 +479,12 @@ const DesignSystemEnhanced = () => {
         description: newTemplate.description,
         template_type: newTemplate.template_type,
         structure_id: newTemplate.structure_id,
-        template_sql: newTemplate.template_sql
+        table_name_pattern: `{dataset_name}_${newTemplate.template_type}`,
+        schema_name: 'public',
+        include_audit_fields: true,
+        include_source_tracking: true,
+        include_processing_metadata: true,
+        postgis_enabled: true
       };
       
       const response = await api.post('/api/design-enhanced/templates', templateData);
@@ -267,10 +506,12 @@ const DesignSystemEnhanced = () => {
   const handleGenerateTable = async (templateId) => {
     try {
       setLoading(true);
-      const response = await api.post(`/api/design-enhanced/templates/${templateId}/generate`, {
+      const generationData = {
         table_name: `generated_table_${Date.now()}`,
         schema_name: 'public'
-      });
+      };
+      
+      const response = await api.post(`/api/design-enhanced/templates/${templateId}/generate`, generationData);
       showMessage('Table generated successfully', 'success');
     } catch (error) {
       showMessage('Error generating table: ' + error.message, 'error');
@@ -279,70 +520,71 @@ const DesignSystemEnhanced = () => {
     }
   };
 
-  const handleStructureFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  // Generate SQL preview for the structure
+  const generateSQLPreview = () => {
+    if (!aiAnalysis || !newStructure.name) return '';
 
-    try {
-      setLoading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await api.post('/api/design-enhanced/ai/analyze-file', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      
-      setAiAnalysis(response.data.analysis);
-      setSelectedHeaderFile(null);
-      setSelectedDataFiles([]);
-      setGeneratedMappings(null);
-      showMessage('File analyzed successfully', 'success');
-    } catch (error) {
-      showMessage('Error analyzing file: ' + error.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Auto-generate mappings when CSV file is selected
-  const handleHeaderFileSelection = (filename) => {
-    setSelectedHeaderFile(filename);
+    const tableName = newStructure.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const fields = aiAnalysis.field_analysis || [];
     
-    // Auto-generate mappings for CSV files
-    if (aiAnalysis?.content_analysis?.file_previews?.[filename]?.format === 'csv') {
-      // Set this file as the only data file for CSV processing
-      setSelectedDataFiles([filename]);
+    let sql = `-- Generated SQL for ${newStructure.name}\n`;
+    sql += `-- Data Type: ${newStructure.data_type}\n`;
+    sql += `-- Source Type: ${newStructure.source_type}\n\n`;
+    
+    sql += `CREATE TABLE staging.${tableName}_staging (\n`;
+    
+    // Add standard staging fields
+    sql += `    id SERIAL PRIMARY KEY,\n`;
+    sql += `    batch_id VARCHAR(50),\n`;
+    sql += `    source_name VARCHAR(100),\n`;
+    sql += `    session_id VARCHAR(50),\n`;
+    sql += `    source_file TEXT,\n`;
+    sql += `    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n`;
+    
+    // Add detected fields
+    fields.forEach((field, index) => {
+      const fieldName = field.field_name || `field_${index + 1}`;
+      let postgresType = 'TEXT';
       
-      // Auto-generate mappings after a short delay
-      setTimeout(() => {
-        handleGenerateMappings();
-      }, 500);
-    }
-  };
-
-  const handleGenerateMappings = async () => {
-    if (!selectedHeaderFile || selectedDataFiles.length === 0) {
-      showMessage('Please select a header file and at least one data file', 'warning');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const response = await api.post('/api/design-enhanced/ai/generate-mappings', {
-        header_file: selectedHeaderFile,
-        data_files: selectedDataFiles,
-        analysis_data: aiAnalysis
-      });
+      switch (field.type) {
+        case 'integer':
+          postgresType = 'INTEGER';
+          break;
+        case 'decimal':
+          postgresType = 'NUMERIC';
+          break;
+        case 'date':
+          postgresType = 'DATE';
+          break;
+        case 'boolean':
+          postgresType = 'BOOLEAN';
+          break;
+        case 'coordinate':
+          postgresType = 'NUMERIC(10, 8)';
+          break;
+        default:
+          postgresType = 'TEXT';
+      }
       
-      setGeneratedMappings(response.data.mappings);
-      showMessage('Field mappings generated successfully', 'success');
-    } catch (error) {
-      showMessage('Error generating mappings: ' + error.message, 'error');
-    } finally {
-      setLoading(false);
+      sql += `    ${fieldName} ${postgresType},\n`;
+    });
+    
+    sql += `    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n`;
+    sql += `);\n\n`;
+    
+    // Add indexes
+    sql += `-- Indexes\n`;
+    sql += `CREATE INDEX idx_${tableName}_staging_batch_id ON staging.${tableName}_staging(batch_id);\n`;
+    sql += `CREATE INDEX idx_${tableName}_staging_source_name ON staging.${tableName}_staging(source_name);\n`;
+    sql += `CREATE INDEX idx_${tableName}_staging_session_id ON staging.${tableName}_staging(session_id);\n`;
+    
+    // Add spatial index if coordinates are present
+    const hasCoordinates = fields.some(f => f.type === 'coordinate');
+    if (hasCoordinates) {
+      sql += `CREATE INDEX idx_${tableName}_staging_geom ON staging.${tableName}_staging USING GIST(geometry);\n`;
     }
+    
+    return sql;
   };
 
   const showMessage = (msg, sev = 'info') => {
@@ -406,24 +648,21 @@ const DesignSystemEnhanced = () => {
                 <Typography variant="caption" display="block">
                   Created: {new Date(structure.created_at).toLocaleDateString()}
                 </Typography>
-                <Box mt={2}>
+                <Box mt={2} display="flex" justifyContent="space-between" alignItems="center">
                   <Button
                     size="small"
-                    startIcon={<FieldIcon />}
-                    onClick={() => {
-                      setSelectedStructure(structure);
-                      setFieldDialog(true);
-                    }}
+                    startIcon={<TableIcon />}
+                    onClick={() => handleViewTableStructure(structure)}
                   >
-                    Add Field
+                    View Structure
                   </Button>
-                  <Button
+                  <IconButton
                     size="small"
-                    startIcon={<ViewIcon />}
-                    onClick={() => setSelectedStructure(structure)}
+                    color="error"
+                    onClick={() => handleDeleteStructure(structure)}
                   >
-                    View Fields
-                  </Button>
+                    <DeleteOutlineIcon />
+                  </IconButton>
                 </Box>
               </CardContent>
             </Card>
@@ -478,13 +717,6 @@ const DesignSystemEnhanced = () => {
                   >
                     Generate Table
                   </Button>
-                  <Button
-                    size="small"
-                    startIcon={<ViewIcon />}
-                    onClick={() => setSelectedTemplate(template)}
-                  >
-                    View SQL
-                  </Button>
                 </Box>
               </CardContent>
             </Card>
@@ -501,13 +733,6 @@ const DesignSystemEnhanced = () => {
           <CloudUploadIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
           Recent Uploads
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<UploadIcon />}
-          onClick={() => setUploadDialog(true)}
-        >
-          Upload Dataset
-        </Button>
       </Box>
 
       <TableContainer component={Paper}>
@@ -567,10 +792,73 @@ const DesignSystemEnhanced = () => {
       {activeTab === 2 && renderRecentUploads()}
 
       {/* Create Structure Dialog */}
-      <Dialog open={structureDialog} onClose={() => setStructureDialog(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>Create Dataset Structure</DialogTitle>
+      <Dialog 
+        open={structureDialog} 
+        onClose={() => {
+          setStructureDialog(false);
+          // Reset form state
+          setNewStructure({
+            name: '',
+            description: '',
+            source_type: '',
+            category: '',
+            version: '1.0',
+            data_type: 'file'
+          });
+          setIsEditMode(false);
+          setEditingStructure(null);
+          setActiveStep(0);
+          setAiAnalysis(null);
+          setGeneratedMappings(null);
+        }} 
+        maxWidth="lg" 
+        fullWidth
+      >
+        <DialogTitle>
+          {isEditMode ? 'Edit Dataset Structure' : 'Create Dataset Structure'}
+        </DialogTitle>
         <DialogContent>
           <Stepper activeStep={activeStep} orientation="vertical" sx={{ mt: 2 }}>
+            <Step>
+              <StepLabel>AI File Analysis & Preview</StepLabel>
+              <StepContent>
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  Upload a sample file to automatically detect format, structure, data standards, and preview the data
+                </Typography>
+                
+                <FilePreviewWithAI
+                  onAnalysisComplete={(analysisData) => {
+                    setAiAnalysis(analysisData);
+                    setGeneratedMappings(null);
+                    autoPopulateFromAnalysis(analysisData);
+                  }}
+                  onMappingsGenerated={(mappingsData) => {
+                    setGeneratedMappings(mappingsData);
+                  }}
+                />
+                
+                {aiAnalysis && (
+                  <Alert severity="success" sx={{ mt: 2 }}>
+                    <Typography variant="body2">
+                      File analyzed successfully! AI has detected {aiAnalysis.field_count || 0} fields and identified {aiAnalysis.identified_standards?.length || 0} data standards.
+                      {aiAnalysis.primary_governing_body && ` Primary governing body: ${aiAnalysis.primary_governing_body}`}
+                      {aiAnalysis.data_quality && ` Data quality: ${aiAnalysis.data_quality.overall_rating}`}
+                    </Typography>
+                  </Alert>
+                )}
+                
+                <Box sx={{ mt: 2 }}>
+                  <Button
+                    variant="contained"
+                    onClick={() => setActiveStep(1)}
+                    disabled={!aiAnalysis}
+                  >
+                    Next: Basic Information
+                  </Button>
+                </Box>
+              </StepContent>
+            </Step>
+            
             <Step>
               <StepLabel>Basic Information</StepLabel>
               <StepContent>
@@ -581,6 +869,7 @@ const DesignSystemEnhanced = () => {
                       label="Structure Name"
                       value={newStructure.name}
                       onChange={(e) => setNewStructure({...newStructure, name: e.target.value})}
+                      placeholder={aiAnalysis?.filename ? aiAnalysis.filename.replace(/\.[^/.]+$/, "") : ""}
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
@@ -609,11 +898,26 @@ const DesignSystemEnhanced = () => {
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth>
+                      <InputLabel>Data Type</InputLabel>
+                      <Select
+                        value={newStructure.data_type}
+                        onChange={(e) => setNewStructure({...newStructure, data_type: e.target.value})}
+                      >
+                        <MenuItem value="file">File Upload</MenuItem>
+                        <MenuItem value="api">API Integration</MenuItem>
+                        <MenuItem value="database">Database Connection</MenuItem>
+                        <MenuItem value="stream">Real-time Stream</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
                       label="Category"
                       value={newStructure.category}
                       onChange={(e) => setNewStructure({...newStructure, category: e.target.value})}
+                      placeholder={aiAnalysis?.primary_governing_body || "e.g., Ordnance Survey, VOA, ONS"}
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -629,532 +933,6 @@ const DesignSystemEnhanced = () => {
                 </Grid>
                 <Box sx={{ mt: 2 }}>
                   <Button
-                    variant="contained"
-                    onClick={() => setActiveStep(1)}
-                    disabled={!newStructure.name || !newStructure.source_type}
-                  >
-                    Next: AI Analysis
-                  </Button>
-                </Box>
-              </StepContent>
-            </Step>
-            
-            <Step>
-              <StepLabel>AI File Analysis (Optional)</StepLabel>
-              <StepContent>
-                <Typography variant="body2" color="textSecondary" gutterBottom>
-                  Upload a sample file to automatically detect format, structure, and data standards
-                </Typography>
-                
-                <input
-                  accept=".csv,.json,.xml,.txt,.gpkg,.shp,.zip,.yaml,.yml"
-                  style={{ display: 'none' }}
-                  id="structure-file-upload"
-                  type="file"
-                  onChange={handleStructureFileUpload}
-                />
-                <label htmlFor="structure-file-upload">
-                  <Button
-                    variant="outlined"
-                    component="span"
-                    startIcon={<UploadIcon />}
-                    disabled={loading}
-                    sx={{ mb: 2 }}
-                  >
-                    Upload Sample File
-                  </Button>
-                </label>
-                
-                {aiAnalysis && (
-                  <Card variant="outlined" sx={{ mt: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
-                        AI Analysis Results
-                      </Typography>
-                      
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} sm={6}>
-                          <Typography variant="subtitle2">Format</Typography>
-                          <Chip label={aiAnalysis.format} color="primary" size="small" />
-                        </Grid>
-                        {aiAnalysis.encoding && (
-                          <Grid item xs={12} sm={6}>
-                            <Typography variant="subtitle2">Encoding</Typography>
-                            <Typography variant="body2">{aiAnalysis.encoding}</Typography>
-                          </Grid>
-                        )}
-                        {aiAnalysis.delimiter && (
-                          <Grid item xs={12} sm={6}>
-                            <Typography variant="subtitle2">Delimiter</Typography>
-                            <Typography variant="body2">'{aiAnalysis.delimiter}'</Typography>
-                          </Grid>
-                        )}
-                        {aiAnalysis.field_count && (
-                          <Grid item xs={12} sm={6}>
-                            <Typography variant="subtitle2">Fields</Typography>
-                            <Typography variant="body2">{aiAnalysis.field_count}</Typography>
-                          </Grid>
-                        )}
-                      </Grid>
-                      
-                      {aiAnalysis.identified_standards && aiAnalysis.identified_standards.length > 0 && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>Identified Data Standards</Typography>
-                          {aiAnalysis.identified_standards.map((standard, index) => (
-                            <Chip
-                              key={index}
-                              label={`${standard.name} (${(standard.confidence * 100).toFixed(0)}%)`}
-                              color={standard.confidence > 0.7 ? "success" : "warning"}
-                              size="small"
-                              sx={{ mr: 1, mb: 1 }}
-                            />
-                          ))}
-                        </Box>
-                      )}
-                      
-                      {/* Enhanced ZIP Analysis Results */}
-                      {aiAnalysis.format === 'zip' && aiAnalysis.content_analysis && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>ZIP Structure Analysis</Typography>
-                          
-                          {aiAnalysis.content_analysis.has_header_data_structure && (
-                            <Alert severity="info" sx={{ mb: 2 }}>
-                              <Typography variant="body2">
-                                <strong>Header/Data Structure Detected:</strong> This ZIP file contains separate directories for header files and data files.
-                              </Typography>
-                            </Alert>
-                          )}
-                          
-                          {/* Directory Structure */}
-                          {aiAnalysis.content_analysis.directory_structure && Object.keys(aiAnalysis.content_analysis.directory_structure).length > 0 && (
-                            <Accordion>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>Directory Structure ({Object.keys(aiAnalysis.content_analysis.directory_structure).length} directories)</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                {Object.entries(aiAnalysis.content_analysis.directory_structure).map(([dir, info]) => (
-                                  <Box key={dir} sx={{ mb: 2, p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
-                                    <Typography variant="subtitle2" color="primary">
-                                      📁 {dir}
-                                    </Typography>
-                                    <Typography variant="caption" display="block">
-                                      Files: {info.files.length} | Size: {(info.total_size / 1024).toFixed(1)} KB | Types: {info.file_types.join(', ')}
-                                    </Typography>
-                                    <Box sx={{ mt: 1 }}>
-                                      {info.files.slice(0, 3).map((file, idx) => (
-                                        <Chip
-                                          key={idx}
-                                          label={`${file.name.split('/').pop()} (${(file.size / 1024).toFixed(1)} KB)`}
-                                          size="small"
-                                          variant="outlined"
-                                          sx={{ mr: 0.5, mb: 0.5 }}
-                                        />
-                                      ))}
-                                      {info.files.length > 3 && (
-                                        <Typography variant="caption" color="textSecondary">
-                                          +{info.files.length - 3} more files
-                                        </Typography>
-                                      )}
-                                    </Box>
-                                  </Box>
-                                ))}
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                          
-                          {/* Suggested Header Files */}
-                          {aiAnalysis.content_analysis.suggested_header_files && aiAnalysis.content_analysis.suggested_header_files.length > 0 && (
-                            <Accordion defaultExpanded>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>Suggested Header Files ({aiAnalysis.content_analysis.suggested_header_files.length})</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                                  Select a header file to define the data structure:
-                                </Typography>
-                                {aiAnalysis.content_analysis.suggested_header_files.map((file, index) => (
-                                  <Card key={index} sx={{ mb: 2, border: selectedHeaderFile === file.filename ? '2px solid #1976d2' : '1px solid #e0e0e0' }}>
-                                    <CardContent>
-                                      <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                                        <Typography variant="subtitle2">
-                                          📄 {file.filename.split('/').pop()}
-                                        </Typography>
-                                        <Chip 
-                                          label={file.confidence} 
-                                          color={file.confidence === 'high' ? 'success' : 'warning'}
-                                          size="small"
-                                        />
-                                      </Box>
-                                      
-                                      {file.headers && (
-                                        <Box sx={{ mb: 1 }}>
-                                          <Typography variant="caption" color="textSecondary">Headers ({file.headers.length}):</Typography>
-                                          <Box sx={{ mt: 0.5 }}>
-                                            {file.headers.slice(0, 5).map((header, idx) => (
-                                              <Chip
-                                                key={idx}
-                                                label={header}
-                                                size="small"
-                                                variant="outlined"
-                                                sx={{ mr: 0.5, mb: 0.5 }}
-                                              />
-                                            ))}
-                                            {file.headers.length > 5 && (
-                                              <Typography variant="caption" color="textSecondary">
-                                                +{file.headers.length - 5} more headers
-                                              </Typography>
-                                            )}
-                                          </Box>
-                                        </Box>
-                                      )}
-                                      
-                                      {file.sample_rows && file.sample_rows.length > 0 && (
-                                        <Box sx={{ mb: 1 }}>
-                                          <Typography variant="caption" color="textSecondary">Sample Data:</Typography>
-                                          <TableContainer component={Paper} sx={{ mt: 0.5, maxHeight: 200 }}>
-                                            <Table size="small">
-                                              <TableHead>
-                                                <TableRow>
-                                                  {file.headers && file.headers.slice(0, 5).map((header, idx) => (
-                                                    <TableCell key={idx} size="small">{header}</TableCell>
-                                                  ))}
-                                                </TableRow>
-                                              </TableHead>
-                                              <TableBody>
-                                                {file.sample_rows.slice(0, 3).map((row, rowIdx) => (
-                                                  <TableRow key={rowIdx}>
-                                                    {row.slice(0, 5).map((cell, cellIdx) => (
-                                                      <TableCell key={cellIdx} size="small">{cell}</TableCell>
-                                                    ))}
-                                                  </TableRow>
-                                                ))}
-                                              </TableBody>
-                                            </Table>
-                                          </TableContainer>
-                                        </Box>
-                                      )}
-                                      
-                                      <Button
-                                        variant={selectedHeaderFile === file.filename ? "contained" : "outlined"}
-                                        size="small"
-                                        onClick={() => handleHeaderFileSelection(file.filename)}
-                                        sx={{ mt: 1 }}
-                                      >
-                                        {selectedHeaderFile === file.filename ? "Selected" : "Select as Header"}
-                                      </Button>
-                                    </CardContent>
-                                  </Card>
-                                ))}
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                          
-                          {/* Suggested Data Files */}
-                          {aiAnalysis.content_analysis.suggested_data_files && aiAnalysis.content_analysis.suggested_data_files.length > 0 && (
-                            <Accordion defaultExpanded>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>Suggested Data Files ({aiAnalysis.content_analysis.suggested_data_files.length})</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                                  Select data files to process:
-                                </Typography>
-                                {aiAnalysis.content_analysis.suggested_data_files.map((file, index) => (
-                                  <Card key={index} sx={{ mb: 2, border: selectedDataFiles.includes(file.filename) ? '2px solid #1976d2' : '1px solid #e0e0e0' }}>
-                                    <CardContent>
-                                      <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                                        <Typography variant="subtitle2">
-                                          📊 {file.filename.split('/').pop()}
-                                        </Typography>
-                                        <Chip label={file.type.toUpperCase()} color="primary" size="small" />
-                                      </Box>
-                                      
-                                      <Typography variant="caption" display="block">
-                                        Fields: {file.field_count} | Estimated Rows: {file.row_count_estimate.toLocaleString()}
-                                      </Typography>
-                                      
-                                      {file.headers && (
-                                        <Box sx={{ mb: 1 }}>
-                                          <Typography variant="caption" color="textSecondary">Fields:</Typography>
-                                          <Box sx={{ mt: 0.5 }}>
-                                            {file.headers.slice(0, 5).map((header, idx) => (
-                                              <Chip
-                                                key={idx}
-                                                label={header}
-                                                size="small"
-                                                variant="outlined"
-                                                sx={{ mr: 0.5, mb: 0.5 }}
-                                              />
-                                            ))}
-                                            {file.headers.length > 5 && (
-                                              <Typography variant="caption" color="textSecondary">
-                                                +{file.headers.length - 5} more fields
-                                              </Typography>
-                                            )}
-                                          </Box>
-                                        </Box>
-                                      )}
-                                      
-                                      <FormControlLabel
-                                        control={
-                                          <Switch
-                                            checked={selectedDataFiles.includes(file.filename)}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                setSelectedDataFiles([...selectedDataFiles, file.filename]);
-                                              } else {
-                                                setSelectedDataFiles(selectedDataFiles.filter(f => f !== file.filename));
-                                              }
-                                            }}
-                                          />
-                                        }
-                                        label="Include in processing"
-                                      />
-                                    </CardContent>
-                                  </Card>
-                                ))}
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                          
-                          {/* Generate Mappings Button */}
-                          {selectedHeaderFile && selectedDataFiles.length > 0 && (
-                            <Box sx={{ mt: 2 }}>
-                              <Button
-                                variant="contained"
-                                color="primary"
-                                onClick={handleGenerateMappings}
-                                disabled={loading}
-                                startIcon={<BuildIcon />}
-                                fullWidth
-                              >
-                                Generate Source-to-Staging Mappings
-                              </Button>
-                            </Box>
-                          )}
-                          
-                          {/* Generated Mappings Display */}
-                          {generatedMappings && (
-                            <Accordion defaultExpanded sx={{ mt: 2 }}>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>Generated Field Mappings ({generatedMappings.field_mappings.length} fields)</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <TableContainer component={Paper}>
-                                  <Table size="small">
-                                    <TableHead>
-                                      <TableRow>
-                                        <TableCell>Source Field</TableCell>
-                                        <TableCell>Staging Field</TableCell>
-                                        <TableCell>Data Type</TableCell>
-                                        <TableCell>PostGIS Type</TableCell>
-                                        <TableCell>Constraints</TableCell>
-                                        <TableCell>Transformations</TableCell>
-                                      </TableRow>
-                                    </TableHead>
-                                    <TableBody>
-                                      {generatedMappings.field_mappings.map((mapping, index) => (
-                                        <TableRow key={index}>
-                                          <TableCell>{mapping.source_field}</TableCell>
-                                          <TableCell>{mapping.staging_field}</TableCell>
-                                          <TableCell>
-                                            <Chip label={mapping.data_type} size="small" color="primary" />
-                                          </TableCell>
-                                          <TableCell>{mapping.postgis_type}</TableCell>
-                                          <TableCell>
-                                            {mapping.constraints.length > 0 ? (
-                                              <Chip label={`${mapping.constraints.length} constraints`} size="small" />
-                                            ) : (
-                                              <Typography variant="caption" color="textSecondary">None</Typography>
-                                            )}
-                                          </TableCell>
-                                          <TableCell>
-                                            {mapping.transformation_rules.length > 0 ? (
-                                              <Chip label={`${mapping.transformation_rules.length} rules`} size="small" />
-                                            ) : (
-                                              <Typography variant="caption" color="textSecondary">None</Typography>
-                                            )}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </TableContainer>
-                                
-                                {generatedMappings.recommendations && generatedMappings.recommendations.length > 0 && (
-                                  <Box sx={{ mt: 2 }}>
-                                    <Typography variant="subtitle2" gutterBottom>Recommendations:</Typography>
-                                    <List dense>
-                                      {generatedMappings.recommendations.map((rec, index) => (
-                                        <ListItem key={index}>
-                                          <ListItemIcon>
-                                            <CheckIcon color="primary" />
-                                          </ListItemIcon>
-                                          <ListItemText primary={rec} />
-                                        </ListItem>
-                                      ))}
-                                    </List>
-                                  </Box>
-                                )}
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                          
-                          {/* Documentation Files */}
-                          {aiAnalysis.content_analysis.documentation && aiAnalysis.content_analysis.documentation.length > 0 && (
-                            <Accordion>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>Documentation ({aiAnalysis.content_analysis.documentation.length})</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <List dense>
-                                  {aiAnalysis.content_analysis.documentation.map((file, index) => (
-                                    <ListItem key={index}>
-                                      <ListItemText
-                                        primary={file.name.split('/').pop()}
-                                        secondary={`${(file.size / 1024).toFixed(1)} KB | ${file.type}`}
-                                      />
-                                    </ListItem>
-                                  ))}
-                                </List>
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                          
-                          {/* Metadata Files */}
-                          {aiAnalysis.content_analysis.metadata && aiAnalysis.content_analysis.metadata.length > 0 && (
-                            <Accordion>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>Metadata ({aiAnalysis.content_analysis.metadata.length})</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <List dense>
-                                  {aiAnalysis.content_analysis.metadata.map((file, index) => (
-                                    <ListItem key={index}>
-                                      <ListItemText
-                                        primary={file.name.split('/').pop()}
-                                        secondary={`${(file.size / 1024).toFixed(1)} KB | ${file.type}`}
-                                      />
-                                    </ListItem>
-                                  ))}
-                                </List>
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                          
-                          {/* All Files with Previews */}
-                          {aiAnalysis.content_analysis.file_previews && Object.keys(aiAnalysis.content_analysis.file_previews).length > 0 && (
-                            <Accordion defaultExpanded>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>All Files with Previews ({Object.keys(aiAnalysis.content_analysis.file_previews).length})</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                                  Debug information for all files in the ZIP:
-                                </Typography>
-                                {Object.entries(aiAnalysis.content_analysis.file_previews).map(([filename, preview], index) => (
-                                  <Card key={index} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
-                                    <CardContent>
-                                      <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                                        <Typography variant="subtitle2">
-                                          📄 {filename.split('/').pop()}
-                                        </Typography>
-                                        <Chip 
-                                          label={preview.extension || 'unknown'} 
-                                          size="small"
-                                          color={preview.preview_attempted ? 'success' : 'warning'}
-                                        />
-                                      </Box>
-                                      
-                                      <Typography variant="caption" display="block">
-                                        Size: {(preview.size / 1024).toFixed(1)} KB | 
-                                        Preview: {preview.preview_attempted ? 'Yes' : 'No'}
-                                      </Typography>
-                                      
-                                      {preview.note && (
-                                        <Typography variant="caption" color="textSecondary" display="block">
-                                          Note: {preview.note}
-                                        </Typography>
-                                      )}
-                                      
-                                      {preview.preview_error && (
-                                        <Typography variant="caption" color="error" display="block">
-                                          Error: {preview.preview_error}
-                                        </Typography>
-                                      )}
-                                      
-                                      {preview.has_header && preview.headers && (
-                                        <Box sx={{ mt: 1 }}>
-                                          <Typography variant="caption" color="textSecondary">Headers:</Typography>
-                                          <Box sx={{ mt: 0.5 }}>
-                                            {preview.headers.slice(0, 3).map((header, idx) => (
-                                              <Chip
-                                                key={idx}
-                                                label={header}
-                                                size="small"
-                                                variant="outlined"
-                                                sx={{ mr: 0.5, mb: 0.5 }}
-                                              />
-                                            ))}
-                                            {preview.headers.length > 3 && (
-                                              <Typography variant="caption" color="textSecondary">
-                                                +{preview.headers.length - 3} more
-                                              </Typography>
-                                            )}
-                                          </Box>
-                                        </Box>
-                                      )}
-                                    </CardContent>
-                                  </Card>
-                                ))}
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                        </Box>
-                      )}
-                      
-                      {aiAnalysis.recommendations && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>Recommendations</Typography>
-                          <Accordion>
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                              <Typography>Data Structure</Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                              <List dense>
-                                {aiAnalysis.recommendations.data_structure.map((rec, index) => (
-                                  <ListItem key={index}>
-                                    <ListItemText primary={rec} />
-                                  </ListItem>
-                                ))}
-                              </List>
-                            </AccordionDetails>
-                          </Accordion>
-                          
-                          {aiAnalysis.recommendations.postgis_types.length > 0 && (
-                            <Accordion>
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography>PostGIS Types</Typography>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                <List dense>
-                                  {aiAnalysis.recommendations.postgis_types.map((rec, index) => (
-                                    <ListItem key={index}>
-                                      <ListItemText primary={rec} />
-                                    </ListItem>
-                                  ))}
-                                </List>
-                              </AccordionDetails>
-                            </Accordion>
-                          )}
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-                
-                <Box sx={{ mt: 2 }}>
-                  <Button
                     variant="outlined"
                     onClick={() => setActiveStep(0)}
                     sx={{ mr: 1 }}
@@ -1164,8 +942,9 @@ const DesignSystemEnhanced = () => {
                   <Button
                     variant="contained"
                     onClick={() => setActiveStep(2)}
+                    disabled={!newStructure.name || !newStructure.source_type}
                   >
-                    Next: Review
+                    Next: Review & Create
                   </Button>
                 </Box>
               </StepContent>
@@ -1174,160 +953,40 @@ const DesignSystemEnhanced = () => {
             <Step>
               <StepLabel>Review & Create</StepLabel>
               <StepContent>
-                <Card variant="outlined">
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>Structure Summary</Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="subtitle2">Name</Typography>
-                        <Typography variant="body2">{newStructure.name}</Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="subtitle2">Version</Typography>
-                        <Typography variant="body2">{newStructure.version}</Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="subtitle2">Source Type</Typography>
-                        <Typography variant="body2">{newStructure.source_type}</Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="subtitle2">Category</Typography>
-                        <Typography variant="body2">{newStructure.category}</Typography>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <Typography variant="subtitle2">Description</Typography>
-                        <Typography variant="body2">{newStructure.description}</Typography>
-                      </Grid>
-                    </Grid>
-                    
-                    {aiAnalysis && (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle2" gutterBottom>AI Analysis Applied</Typography>
-                        <Chip label={`${aiAnalysis.format.toUpperCase()} format detected`} color="info" size="small" />
-                        {aiAnalysis.field_count && (
-                          <Chip label={`${aiAnalysis.field_count} fields`} color="info" size="small" sx={{ ml: 1 }} />
-                        )}
-                      </Box>
-                    )}
-                  </CardContent>
-                </Card>
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  Review the AI analysis, field mappings, and generated SQL before creating the dataset structure
+                </Typography>
                 
-                {/* Field Mappings Display */}
                 {generatedMappings && (
-                  <Card variant="outlined" sx={{ mt: 2 }}>
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                        <Typography variant="h6">Field Mappings</Typography>
-                        <Chip 
-                          label={generatedMappings.mapping_type} 
-                          color="primary" 
-                          size="small"
-                        />
-                      </Box>
-                      
-                      <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                        {generatedMappings.mapping_type === 'csv_with_headers' 
-                          ? '1-to-1 mapping from CSV headers to staging fields:'
-                          : 'Generated field names based on data standards:'
-                        }
-                      </Typography>
-                      
-                      <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
-                        <Table size="small" stickyHeader>
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Source Field</TableCell>
-                              <TableCell>Staging Field</TableCell>
-                              <TableCell>Data Type</TableCell>
-                              <TableCell>PostGIS Type</TableCell>
-                              <TableCell>Sample Value</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {generatedMappings.field_mappings.map((mapping, index) => (
-                              <TableRow key={index} hover>
-                                <TableCell>
-                                  <Typography variant="body2" fontWeight="medium">
-                                    {mapping.source_field}
-                                  </Typography>
-                                  <Typography variant="caption" color="textSecondary">
-                                    Column {mapping.source_column_index + 1}
-                                  </Typography>
-                                </TableCell>
-                                <TableCell>
-                                  <Typography variant="body2" fontFamily="monospace">
-                                    {mapping.staging_field}
-                                  </Typography>
-                                </TableCell>
-                                <TableCell>
-                                  <Chip 
-                                    label={mapping.data_type} 
-                                    size="small" 
-                                    color="primary"
-                                    variant="outlined"
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Typography variant="body2" fontFamily="monospace">
-                                    {mapping.postgis_type}
-                                  </Typography>
-                                </TableCell>
-                                <TableCell>
-                                  {aiAnalysis?.content_analysis?.file_previews?.[selectedHeaderFile]?.sample_rows?.[0]?.[mapping.source_column_index] ? (
-                                    <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
-                                      {aiAnalysis.content_analysis.file_previews[selectedHeaderFile].sample_rows[0][mapping.source_column_index]}
-                                    </Typography>
-                                  ) : (
-                                    <Typography variant="caption" color="textSecondary">
-                                      No sample
-                                    </Typography>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                      
-                      {/* Mapping Type Information */}
-                      <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Typography variant="subtitle2" gutterBottom>
-                          Mapping Information
-                        </Typography>
-                        {generatedMappings.mapping_type === 'csv_with_headers' ? (
-                          <Typography variant="body2" color="textSecondary">
-                            ✓ CSV file contains header row - using actual column names for mapping
-                          </Typography>
-                        ) : generatedMappings.mapping_type === 'csv_without_headers' ? (
-                          <Typography variant="body2" color="textSecondary">
-                            ✓ CSV file has no headers - generated field names based on data content analysis
-                          </Typography>
-                        ) : (
-                          <Typography variant="body2" color="textSecondary">
-                            ✓ Field mappings generated based on file structure analysis
-                          </Typography>
-                        )}
-                      </Box>
-                      
-                      {/* Recommendations */}
-                      {generatedMappings.recommendations && generatedMappings.recommendations.length > 0 && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>Recommendations</Typography>
-                          <List dense>
-                            {generatedMappings.recommendations.map((rec, index) => (
-                              <ListItem key={index}>
-                                <ListItemIcon>
-                                  <CheckIcon color="primary" />
-                                </ListItemIcon>
-                                <ListItemText primary={rec} />
-                              </ListItem>
-                            ))}
-                          </List>
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      AI has generated {generatedMappings.field_mappings?.length || 0} field mappings with 1-to-1 mapping to staging fields.
+                    </Typography>
+                  </Alert>
                 )}
+                
+                {/* SQL Preview */}
+                <Accordion defaultExpanded sx={{ mb: 2 }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="h6">
+                      <CodeIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                      Generated SQL Preview
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={15}
+                      value={generateSQLPreview()}
+                      InputProps={{
+                        readOnly: true,
+                        style: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                      }}
+                      variant="outlined"
+                    />
+                  </AccordionDetails>
+                </Accordion>
                 
                 <Box sx={{ mt: 2 }}>
                   <Button
@@ -1340,9 +999,9 @@ const DesignSystemEnhanced = () => {
                   <Button
                     variant="contained"
                     onClick={handleCreateStructure}
-                    disabled={loading}
+                    disabled={!newStructure.name || !newStructure.source_type}
                   >
-                    Create Structure
+                    {isEditMode ? 'Update Dataset Structure' : 'Create Dataset Structure'}
                   </Button>
                 </Box>
               </StepContent>
@@ -1350,19 +1009,13 @@ const DesignSystemEnhanced = () => {
           </Stepper>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => {
-            setStructureDialog(false);
-            setActiveStep(0);
-            setAiAnalysis(null);
-          }}>
-            Cancel
-          </Button>
+          <Button onClick={() => setStructureDialog(false)}>Cancel</Button>
         </DialogActions>
       </Dialog>
 
       {/* Create Field Dialog */}
       <Dialog open={fieldDialog} onClose={() => setFieldDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Add Field to {selectedStructure?.name}</DialogTitle>
+        <DialogTitle>Add Field to {selectedStructure?.dataset_name}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} sm={6}>
@@ -1537,6 +1190,237 @@ const DesignSystemEnhanced = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+             {/* Table Structure Dialog */}
+       <Dialog open={tableStructureDialog} onClose={() => setTableStructureDialog(false)} maxWidth="xl" fullWidth>
+         <DialogTitle>
+           <Box display="flex" alignItems="center" justifyContent="space-between">
+             <Typography variant="h6">
+               <TableIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+               Table Structure: {selectedStructureForView?.dataset_name}
+             </Typography>
+             <Chip 
+               label={selectedStructureForView?.status || 'draft'} 
+               color={getStatusColor(selectedStructureForView?.status || 'draft')}
+               size="small"
+             />
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Box mb={2}>
+             <Typography variant="body2" color="textSecondary">
+               {selectedStructureForView?.description}
+             </Typography>
+             <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+               Source Type: {selectedStructureForView?.source_type} | 
+               Category: {selectedStructureForView?.governing_body} | 
+               Created: {selectedStructureForView?.created_at ? new Date(selectedStructureForView.created_at).toLocaleDateString() : 'N/A'}
+             </Typography>
+           </Box>
+           
+           <Typography variant="h6" gutterBottom>
+             <FieldIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+             Field Definitions ({structureFields.length} fields)
+           </Typography>
+           
+           <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
+             <Table stickyHeader>
+               <TableHead>
+                 <TableRow>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Field Name</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Display Name</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Data Type</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>PostGIS Type</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Required</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Primary Key</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Default Value</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Constraints</TableCell>
+                   <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
+                 </TableRow>
+               </TableHead>
+               <TableBody>
+                 {loading ? (
+                   <TableRow>
+                     <TableCell colSpan={9} align="center">
+                       <Typography variant="body2" color="textSecondary">
+                         Loading fields...
+                       </Typography>
+                     </TableCell>
+                   </TableRow>
+                 ) : structureFields.length === 0 ? (
+                   <TableRow>
+                     <TableCell colSpan={9} align="center">
+                       <Typography variant="body2" color="textSecondary">
+                         No fields defined for this structure yet.
+                       </Typography>
+                     </TableCell>
+                   </TableRow>
+                 ) : (
+                   structureFields.map((field) => (
+                     <TableRow key={field.id} hover>
+                       <TableCell>
+                         <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                           {field.field_name}
+                         </Typography>
+                       </TableCell>
+                       <TableCell>{field.display_name || field.field_name}</TableCell>
+                       <TableCell>
+                         <Chip 
+                           label={field.field_type} 
+                           size="small" 
+                           color="primary" 
+                           variant="outlined"
+                         />
+                       </TableCell>
+                       <TableCell>
+                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                           {field.postgis_type}
+                         </Typography>
+                       </TableCell>
+                       <TableCell>
+                         {field.is_required ? (
+                           <Chip label="Yes" size="small" color="error" />
+                         ) : (
+                           <Chip label="No" size="small" color="default" variant="outlined" />
+                         )}
+                       </TableCell>
+                       <TableCell>
+                         {field.is_primary_key ? (
+                           <Chip label="Yes" size="small" color="success" />
+                         ) : (
+                           <Chip label="No" size="small" color="default" variant="outlined" />
+                         )}
+                       </TableCell>
+                       <TableCell>
+                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                           {field.default_value || '-'}
+                         </Typography>
+                       </TableCell>
+                       <TableCell>
+                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                           {field.constraints || '-'}
+                         </Typography>
+                       </TableCell>
+                       <TableCell>
+                         <Typography variant="body2" color="textSecondary">
+                           {field.description || '-'}
+                         </Typography>
+                       </TableCell>
+                     </TableRow>
+                   ))
+                 )}
+               </TableBody>
+             </Table>
+           </TableContainer>
+           
+           {structureFields.length > 0 && (
+             <Box mt={2}>
+               <Accordion>
+                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                   <Typography variant="h6">
+                     <CodeIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                     Generated SQL Preview
+                   </Typography>
+                 </AccordionSummary>
+                 <AccordionDetails>
+                   <TextField
+                     fullWidth
+                     multiline
+                     rows={10}
+                     value={generateSQLPreview()}
+                     InputProps={{
+                       readOnly: true,
+                       style: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                     }}
+                     variant="outlined"
+                   />
+                 </AccordionDetails>
+               </Accordion>
+             </Box>
+           )}
+         </DialogContent>
+         <DialogActions>
+           <Button 
+             startIcon={<RefreshIcon />}
+             onClick={() => loadStructureFields(selectedStructureForView.structure_id)}
+             disabled={loading}
+           >
+             Refresh
+           </Button>
+           <Button 
+             startIcon={<EditIcon />}
+             onClick={() => {
+               setTableStructureDialog(false);
+               // Open edit dialog for this structure
+               setEditingStructure(selectedStructureForView);
+               setNewStructure({
+                 name: selectedStructureForView.dataset_name,
+                 description: selectedStructureForView.description || '',
+                 source_type: selectedStructureForView.source_type,
+                 category: selectedStructureForView.governing_body || '',
+                 version: '1.0',
+                 data_type: selectedStructureForView.source_type === 'file' ? 'file' : selectedStructureForView.source_type
+               });
+               setIsEditMode(true);
+               setStructureDialog(true);
+             }}
+           >
+             Edit Structure
+           </Button>
+           <Button 
+             startIcon={<FieldIcon />}
+             onClick={() => {
+               setTableStructureDialog(false);
+               setSelectedStructure(selectedStructureForView);
+               setFieldDialog(true);
+             }}
+           >
+             Add Field
+           </Button>
+           <Button onClick={() => setTableStructureDialog(false)}>Close</Button>
+         </DialogActions>
+       </Dialog>
+
+       {/* Delete Confirmation Dialog */}
+       <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)} maxWidth="sm" fullWidth>
+         <DialogTitle>
+           <Box display="flex" alignItems="center">
+             <WarningIcon sx={{ mr: 1, color: 'error.main' }} />
+             Confirm Delete
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Typography variant="body1" gutterBottom>
+             Are you sure you want to delete the dataset structure:
+           </Typography>
+           <Typography variant="h6" color="error" gutterBottom>
+             "{structureToDelete?.dataset_name}"
+           </Typography>
+           <Alert severity="warning" sx={{ mt: 2 }}>
+             <Typography variant="body2">
+               This action will permanently delete the structure and all its associated field definitions. 
+               This action cannot be undone.
+             </Typography>
+           </Alert>
+         </DialogContent>
+         <DialogActions>
+           <Button 
+             onClick={() => setDeleteDialog(false)}
+             disabled={loading}
+           >
+             Cancel
+           </Button>
+           <Button 
+             onClick={confirmDeleteStructure}
+             color="error"
+             variant="contained"
+             disabled={loading}
+             startIcon={loading ? null : <DeleteOutlineIcon />}
+           >
+             {loading ? 'Deleting...' : 'Delete Structure'}
+           </Button>
+         </DialogActions>
+       </Dialog>
 
       <Snackbar
         open={!!message}
