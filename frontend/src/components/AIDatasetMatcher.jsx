@@ -80,7 +80,7 @@ const AIDatasetMatcher = ({
       // Step 2: Match with staging configurations
       const configMatches = await matchWithStagingConfigs();
       
-      // Step 3: Match with design system templates
+      // Step 3: Match with dataset templates
       const templateMatches = await matchWithDesignTemplates();
       
       // Combine and rank all matches
@@ -117,7 +117,7 @@ const AIDatasetMatcher = ({
       return (response.data.matches || []).map(match => ({
         ...match,
         type: 'dataset_structure',
-        source: 'Design System'
+        source: 'Dataset Structures'
       }));
     } catch (error) {
       console.error('Dataset structure matching failed:', error);

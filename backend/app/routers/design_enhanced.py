@@ -1872,14 +1872,49 @@ def assess_data_quality(analysis: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @router.post("/ai/analyze-file")
-async def analyze_file(file: UploadFile = File(...)):
+async def analyze_file(
+    file: UploadFile = File(...),
+    use_client_side: bool = Form(True),
+    sample_size: int = Form(1000),
+    max_file_size: int = Form(10 * 1024 * 1024 * 1024),  # 10GB default
+    enable_ai: bool = Form(True),
+    enable_validation: bool = Form(True),
+    enable_standards: bool = Form(True)
+):
     """AI-powered file analysis to detect format, structure, and data standards"""
     try:
         print(f"Starting analysis for file: {file.filename}")
+        print(f"Analysis options: client_side={use_client_side}, sample_size={sample_size}, max_size={max_file_size}")
         
-        # Read only first 1MB for fast analysis
-        content = await file.read(1024 * 1024)  # 1MB chunk
+        # Check file size
+        file_size = 0
+        content_chunks = []
+        
+        # Read file in chunks for large files
+        chunk_size = 1024 * 1024  # 1MB chunks
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            content_chunks.append(chunk)
+            file_size += len(chunk)
+            
+            # Stop reading if we exceed max file size
+            if file_size > max_file_size:
+                raise HTTPException(
+                    status_code=413, 
+                    detail=f"File size ({file_size} bytes) exceeds maximum allowed size ({max_file_size} bytes)"
+                )
+        
+        # Combine chunks
+        content = b''.join(content_chunks)
         print(f"Read {len(content)} bytes from file")
+        
+        # For large files, only analyze a sample
+        if file_size > 100 * 1024 * 1024:  # 100MB
+            print("Large file detected, analyzing sample only")
+            sample_content = content[:sample_size * 1024]  # Sample based on configured size
+            content = sample_content
         
         # Detect file type
         filename = file.filename or "uploaded_file"
@@ -1920,8 +1955,16 @@ async def analyze_file(file: UploadFile = File(...)):
         
         # Add file metadata
         analysis["filename"] = file.filename
-        analysis["file_size"] = len(content)
+        analysis["file_size"] = file_size
         analysis["mime_type"] = mime_type
+        analysis["analysis_options"] = {
+            "use_client_side": use_client_side,
+            "sample_size": sample_size,
+            "max_file_size": max_file_size,
+            "enable_ai": enable_ai,
+            "enable_validation": enable_validation,
+            "enable_standards": enable_standards
+        }
         
         # Limit sample rows for faster response
         if "sample_rows" in analysis and isinstance(analysis["sample_rows"], list) and len(analysis["sample_rows"]) > 10:

@@ -1767,8 +1767,8 @@ export default function Upload() {
                 file={file}
                 onCreatePipeline={(config) => {
                   console.log('Pipeline created:', config);
-                  // You can add additional logic here, like navigating to the Design System
-                  toast.success('Pipeline created! You can now manage it in the Design System.');
+                  // You can add additional logic here, like navigating to the Dataset Structures
+                  toast.success('Pipeline created! You can now manage it in the Dataset Structures.');
                 }}
               />
             )}

@@ -4,6 +4,7 @@ import FileAnalysisSection from '../components/FileAnalysisSection';
 import ClientSideFileAnalysis from '../components/ClientSideFileAnalysis';
 import DataPreviewSection from '../components/DataPreviewSection';
 import FieldAnalysisSection from '../components/FieldAnalysisSection';
+import AIDatasetTypeCreator from '../components/AIDatasetTypeCreator';
 import {
   Container,
   Grid,
@@ -82,7 +83,8 @@ import {
   ViewList as ViewListIcon,
   Create as CreateIcon,
   Build as BuildIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
+  Psychology as PsychologyIcon
 } from '@mui/icons-material';
 
 const DatasetStructures = () => {
@@ -124,6 +126,7 @@ const DatasetStructures = () => {
   const [uploadDialog, setUploadDialog] = useState(false);
   const [reviewDialog, setReviewDialog] = useState(false);
   const [tableStructureDialog, setTableStructureDialog] = useState(false);
+  const [aiDatasetTypeDialog, setAiDatasetTypeDialog] = useState(false);
   
   // Stepper and AI Analysis
   const [activeStep, setActiveStep] = useState(0);
@@ -299,6 +302,22 @@ const DatasetStructures = () => {
       showMessage('Error deleting structure: ' + error.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAIDatasetTypeCreated = async (datasetType) => {
+    try {
+      // Reload dataset types
+      const typesResponse = await api.get('/api/dataset-structures/types');
+      setDatasetTypes(typesResponse.data.types || []);
+      
+      // Close dialog
+      setAiDatasetTypeDialog(false);
+      
+      showMessage('AI-powered dataset type created successfully!', 'success');
+    } catch (error) {
+      console.error('Error handling AI dataset type creation:', error);
+      showMessage('Error handling dataset type creation: ' + error.message, 'error');
     }
   };
 
@@ -698,13 +717,23 @@ const DatasetStructures = () => {
         <Typography variant="h5">
           Dataset Types
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setStructureDialog(true)}
-        >
-          Create Dataset Type
-        </Button>
+        <Box>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setStructureDialog(true)}
+            sx={{ mr: 1 }}
+          >
+            Create Dataset Type
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<PsychologyIcon />}
+            onClick={() => setAiDatasetTypeDialog(true)}
+          >
+            AI-Powered Creator
+          </Button>
+        </Box>
       </Box>
 
       <Grid container spacing={3}>
@@ -1916,7 +1945,34 @@ const DatasetStructures = () => {
          </DialogActions>
        </Dialog>
 
-
+       {/* AI Dataset Type Creator Dialog */}
+       <Dialog 
+         open={aiDatasetTypeDialog} 
+         onClose={() => setAiDatasetTypeDialog(false)} 
+         maxWidth="xl" 
+         fullWidth
+         PaperProps={{
+           sx: { height: '90vh' }
+         }}
+       >
+         <DialogTitle>
+           <Box display="flex" alignItems="center" justifyContent="space-between">
+             <Typography variant="h6">
+               <PsychologyIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+               AI-Powered Dataset Type Creator
+             </Typography>
+             <IconButton onClick={() => setAiDatasetTypeDialog(false)}>
+               <CancelIcon />
+             </IconButton>
+           </Box>
+         </DialogTitle>
+         <DialogContent sx={{ p: 0 }}>
+           <AIDatasetTypeCreator
+             onDatasetTypeCreated={handleAIDatasetTypeCreated}
+             onCancel={() => setAiDatasetTypeDialog(false)}
+           />
+         </DialogContent>
+       </Dialog>
 
       <Snackbar
         open={!!message}
