@@ -427,10 +427,25 @@ const FilePreviewWithAI = ({ onAnalysisComplete, onMappingsGenerated }) => {
       }
     } else if (analysis.field_analysis && Array.isArray(analysis.field_analysis)) {
       headers = analysis.field_analysis.map(field => field.field_name || `Field ${field.sequence_order || 0}`);
-      // Create sample rows from field analysis if available
-      sampleRows = analysis.field_analysis.map(field => 
-        field.sample_values ? [field.sample_values.slice(0, 3).join(', ')] : ['Sample data']
-      );
+      
+      // Create sample rows from field analysis, ensuring empty fields are included
+      const maxSampleValues = Math.max(...analysis.field_analysis.map(field => 
+        field.sample_values ? field.sample_values.length : 0
+      ), 1);
+      
+      sampleRows = [];
+      for (let i = 0; i < maxSampleValues; i++) {
+        const row = [];
+        for (const field of analysis.field_analysis) {
+          if (field.sample_values && i < field.sample_values.length) {
+            row.push(field.sample_values[i]);
+          } else {
+            // For empty fields or missing sample values, show "empty"
+            row.push(field.type === 'empty' ? 'empty' : '');
+          }
+        }
+        sampleRows.push(row);
+      }
     }
     
     if (sampleRows.length === 0) return null;
@@ -439,6 +454,16 @@ const FilePreviewWithAI = ({ onAnalysisComplete, onMappingsGenerated }) => {
     const dataRows = analysis.has_header && sampleRows.length > 1 ? sampleRows.slice(1) : sampleRows;
     const displayRows = dataRows.slice(0, previewRows);
     const displayHeaders = showAllFields ? headers : headers.slice(0, 10);
+
+    // Ensure all rows have the same number of columns as headers
+    const normalizedRows = displayRows.map(row => {
+      const normalizedRow = [...row];
+      // Fill missing columns with empty values to match header count
+      while (normalizedRow.length < displayHeaders.length) {
+        normalizedRow.push('');
+      }
+      return normalizedRow;
+    });
 
     return (
       <Card variant="outlined" sx={{ mb: 2 }}>
@@ -483,7 +508,7 @@ const FilePreviewWithAI = ({ onAnalysisComplete, onMappingsGenerated }) => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {displayRows.map((row, rowIndex) => (
+                {normalizedRows.map((row, rowIndex) => (
                   <TableRow key={rowIndex} hover>
                     {displayHeaders.map((header, colIndex) => (
                       <TableCell key={colIndex}>

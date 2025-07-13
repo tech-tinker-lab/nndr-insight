@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
-import FilePreviewWithAI from '../components/FilePreviewWithAI';
+import FileAnalysisSection from '../components/FileAnalysisSection';
+import DataPreviewSection from '../components/DataPreviewSection';
+import FieldAnalysisSection from '../components/FieldAnalysisSection';
 import {
   Container,
   Grid,
@@ -131,6 +133,8 @@ const DesignSystemEnhanced = () => {
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [structureToDelete, setStructureToDelete] = useState(null);
   
+
+  
   // Form States
   const [newStructure, setNewStructure] = useState({
     name: '',
@@ -138,7 +142,8 @@ const DesignSystemEnhanced = () => {
     source_type: '',
     category: '',
     version: '1.0',
-    data_type: 'file' // Add data type field
+    data_type: 'file', // Add data type field
+    target_schema_type: 'staging' // Add target schema type field
   });
   
   // Edit mode state
@@ -277,6 +282,7 @@ const DesignSystemEnhanced = () => {
         source_type: newStructure.data_type, // Use data_type instead of source_type for database
         file_formats: [newStructure.source_type],
         governing_body: newStructure.category,
+        target_schema_type: newStructure.target_schema_type,
         data_standards: aiAnalysis?.identified_standards?.map(s => s.standard_id) || [],
         tags: [newStructure.category]
       };
@@ -296,28 +302,12 @@ const DesignSystemEnhanced = () => {
         showMessage('Dataset structure created successfully!', 'success');
       }
       
-      // Auto-create field definitions from AI analysis or generated mappings
-      if (structureId) {
+      // Create field definitions from the mappings configured in Step 2
+      if (structureId && generatedMappings?.field_mappings && generatedMappings.field_mappings.length > 0) {
         try {
-          console.log('Debug: AI Analysis available:', !!aiAnalysis);
-          console.log('Debug: AI Analysis field_analysis:', aiAnalysis?.field_analysis);
-          console.log('Debug: Generated mappings:', generatedMappings);
-          console.log('Debug: Generated mappings field_mappings:', generatedMappings?.field_mappings);
-          
-          if (generatedMappings?.field_mappings && generatedMappings.field_mappings.length > 0) {
-            // Use generated mappings if available
-            console.log('Debug: Creating fields from mappings, count:', generatedMappings.field_mappings.length);
-            await createFieldsFromMappings(structureId, generatedMappings);
-            showMessage(`Created ${generatedMappings.field_mappings.length} field definitions from AI mappings!`, 'success');
-          } else if (aiAnalysis?.field_analysis && aiAnalysis.field_analysis.length > 0) {
-            // Fall back to field analysis
-            console.log('Debug: Creating fields from analysis, count:', aiAnalysis.field_analysis.length);
-            await createFieldsFromAnalysis(structureId, aiAnalysis);
-            showMessage(`Created ${aiAnalysis.field_analysis.length} field definitions automatically!`, 'success');
-          } else {
-            console.log('Debug: No field data available for creation');
-            showMessage('No field data available from AI analysis', 'warning');
-          }
+          console.log('Debug: Creating fields from stepper mappings, count:', generatedMappings.field_mappings.length);
+          await createFieldsFromMappings(structureId, generatedMappings);
+          showMessage(`Created ${generatedMappings.field_mappings.length} field definitions!`, 'success');
         } catch (fieldError) {
           console.error('Error creating fields:', fieldError);
           showMessage('Structure created but field creation failed: ' + fieldError.message, 'warning');
@@ -335,7 +325,8 @@ const DesignSystemEnhanced = () => {
         source_type: '',
         category: '',
         version: '1.0',
-        data_type: 'file'
+        data_type: 'file',
+        target_schema_type: 'staging'
       });
       setIsEditMode(false);
       setEditingStructure(null);
@@ -350,12 +341,9 @@ const DesignSystemEnhanced = () => {
     }
   };
 
-  const createFieldsFromAnalysis = async (structureId, analysis) => {
-    const fieldAnalysis = analysis.field_analysis || [];
-    console.log('Debug: createFieldsFromAnalysis called with structureId:', structureId);
-    console.log('Debug: fieldAnalysis length:', fieldAnalysis.length);
-    console.log('Debug: fieldAnalysis data:', fieldAnalysis);
-    
+
+
+  const processFieldMappings = async (structureId, fieldAnalysis) => {
     for (let i = 0; i < fieldAnalysis.length; i++) {
       const field = fieldAnalysis[i];
       console.log(`Debug: Processing field ${i + 1}:`, field);
@@ -415,28 +403,83 @@ const DesignSystemEnhanced = () => {
     }
   };
 
+
+
   const createFieldsFromMappings = async (structureId, mappings) => {
     const fieldMappings = mappings.field_mappings || [];
     
     for (let i = 0; i < fieldMappings.length; i++) {
       const mapping = fieldMappings[i];
       
-      // Only set postgis_type for actual geometry fields
+      // Map custom field types to valid database field types
+      let fieldType = mapping.data_type || 'text';
       let postgisType = null;
-      if (mapping.data_type === 'geometry' && mapping.postgis_type) {
-        postgisType = mapping.postgis_type;
+      
+      // Map custom field types to valid database types
+      switch (fieldType) {
+        case 'postcode':
+        case 'uprn':
+        case 'usrn':
+        case 'coordinate':
+        case 'longitude':
+        case 'latitude':
+          fieldType = 'text'; // Store as text to preserve formatting
+          break;
+        case 'geometry':
+          fieldType = 'geometry';
+          postgisType = mapping.postgis_type || 'POINT';
+          break;
+        case 'geography':
+          fieldType = 'geography';
+          postgisType = mapping.postgis_type || 'POINT';
+          break;
+        case 'integer':
+        case 'number':
+          fieldType = 'integer';
+          break;
+        case 'decimal':
+        case 'float':
+        case 'numeric':
+          fieldType = 'numeric';
+          break;
+        case 'date':
+          fieldType = 'date';
+          break;
+        case 'timestamp':
+          fieldType = 'timestamp';
+          break;
+        case 'boolean':
+          fieldType = 'boolean';
+          break;
+        case 'varchar':
+          fieldType = 'varchar';
+          break;
+        case 'bigint':
+          fieldType = 'bigint';
+          break;
+        case 'jsonb':
+          fieldType = 'jsonb';
+          break;
+        case 'box2d':
+        case 'box3d':
+        case 'raster':
+          // These are PostGIS types that don't need separate postgis_type
+          fieldType = fieldType;
+          break;
+        default:
+          fieldType = 'text'; // Default to text for unknown types
       }
       
       const fieldData = {
-        field_name: mapping.staging_field || mapping.source_field,
-        display_name: mapping.source_field,
-        field_type: mapping.data_type || 'text',
-        postgis_type: postgisType, // Will be null for non-geometry fields
+        field_name: mapping.source_field || mapping.staging_field,
+        display_name: mapping.source_field || mapping.staging_field,
+        field_type: fieldType,
+        postgis_type: postgisType,
         is_required: mapping.is_required || false,
         is_primary_key: mapping.is_primary_key || false,
         default_value: mapping.default_value || '',
         constraints: mapping.constraints || '',
-        description: mapping.description || `Auto-generated from AI mapping: ${mapping.source_field}`,
+        description: mapping.description || `Auto-generated from AI mapping: ${mapping.source_field || mapping.staging_field}`,
         sequence_order: mapping.sequence_order || i + 1
       };
       
@@ -526,12 +569,14 @@ const DesignSystemEnhanced = () => {
 
     const tableName = newStructure.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
     const fields = aiAnalysis.field_analysis || [];
+    const schemaType = newStructure.target_schema_type || 'staging';
     
     let sql = `-- Generated SQL for ${newStructure.name}\n`;
     sql += `-- Data Type: ${newStructure.data_type}\n`;
-    sql += `-- Source Type: ${newStructure.source_type}\n\n`;
+    sql += `-- Source Type: ${newStructure.source_type}\n`;
+    sql += `-- Target Schema: ${schemaType}\n\n`;
     
-    sql += `CREATE TABLE staging.${tableName}_staging (\n`;
+    sql += `CREATE TABLE ${schemaType}.${tableName}_${schemaType} (\n`;
     
     // Add standard staging fields
     sql += `    id SERIAL PRIMARY KEY,\n`;
@@ -574,14 +619,14 @@ const DesignSystemEnhanced = () => {
     
     // Add indexes
     sql += `-- Indexes\n`;
-    sql += `CREATE INDEX idx_${tableName}_staging_batch_id ON staging.${tableName}_staging(batch_id);\n`;
-    sql += `CREATE INDEX idx_${tableName}_staging_source_name ON staging.${tableName}_staging(source_name);\n`;
-    sql += `CREATE INDEX idx_${tableName}_staging_session_id ON staging.${tableName}_staging(session_id);\n`;
+    sql += `CREATE INDEX idx_${tableName}_${schemaType}_batch_id ON ${schemaType}.${tableName}_${schemaType}(batch_id);\n`;
+    sql += `CREATE INDEX idx_${tableName}_${schemaType}_source_name ON ${schemaType}.${tableName}_${schemaType}(source_name);\n`;
+    sql += `CREATE INDEX idx_${tableName}_${schemaType}_session_id ON ${schemaType}.${tableName}_${schemaType}(session_id);\n`;
     
     // Add spatial index if coordinates are present
     const hasCoordinates = fields.some(f => f.type === 'coordinate');
     if (hasCoordinates) {
-      sql += `CREATE INDEX idx_${tableName}_staging_geom ON staging.${tableName}_staging USING GIST(geometry);\n`;
+      sql += `CREATE INDEX idx_${tableName}_${schemaType}_geom ON ${schemaType}.${tableName}_${schemaType} USING GIST(geometry);\n`;
     }
     
     return sql;
@@ -820,38 +865,119 @@ const DesignSystemEnhanced = () => {
         <DialogContent>
           <Stepper activeStep={activeStep} orientation="vertical" sx={{ mt: 2 }}>
             <Step>
-              <StepLabel>AI File Analysis & Preview</StepLabel>
+              <StepLabel>AI File Analysis & Field Definition</StepLabel>
               <StepContent>
                 <Typography variant="body2" color="textSecondary" gutterBottom>
-                  Upload a sample file to automatically detect format, structure, data standards, and preview the data
+                  Upload a sample file to automatically detect format, structure, data standards, preview the data, and configure field mappings
                 </Typography>
                 
-                <FilePreviewWithAI
+                {/* File Analysis Section */}
+                <FileAnalysisSection
                   onAnalysisComplete={(analysisData) => {
                     setAiAnalysis(analysisData);
-                    setGeneratedMappings(null);
                     autoPopulateFromAnalysis(analysisData);
+                    
+                    // Automatically generate field mappings from AI analysis
+                    if (analysisData.field_analysis && analysisData.field_analysis.length > 0) {
+                      const processedMappings = analysisData.field_analysis.map((field, index) => {
+                        // Map field types to valid database types (same logic as in FieldAnalysisSection)
+                        let selectedType = 'text';
+                        if (field.type === 'empty') {
+                          selectedType = 'text';
+                        } else if (field.type) {
+                          switch (field.type) {
+                            case 'postcode':
+                            case 'uprn':
+                            case 'usrn':
+                            case 'coordinate':
+                            case 'longitude':
+                            case 'latitude':
+                              selectedType = 'text';
+                              break;
+                            case 'integer':
+                            case 'number':
+                              selectedType = 'integer';
+                              break;
+                            case 'decimal':
+                            case 'float':
+                            case 'numeric':
+                              selectedType = 'decimal';
+                              break;
+                            case 'date':
+                              selectedType = 'date';
+                              break;
+                            case 'timestamp':
+                              selectedType = 'timestamp';
+                              break;
+                            case 'boolean':
+                              selectedType = 'boolean';
+                              break;
+                            case 'geometry':
+                              selectedType = 'geometry';
+                              break;
+                            case 'geography':
+                              selectedType = 'geography';
+                              break;
+                            default:
+                              selectedType = 'text';
+                          }
+                        }
+
+                        return {
+                          source_field: field.field_name || `field_${index + 1}`,
+                          staging_field: field.field_name || `field_${index + 1}`,
+                          data_type: selectedType,
+                          postgis_type: null,
+                          is_required: false,
+                          is_primary_key: index === 0,
+                          default_value: '',
+                          constraints: '',
+                          description: field.field_name || `Field ${index + 1}`
+                        };
+                      });
+                      setGeneratedMappings({ field_mappings: processedMappings });
+                    }
                   }}
                   onMappingsGenerated={(mappingsData) => {
                     setGeneratedMappings(mappingsData);
                   }}
                 />
                 
+                {/* Data Preview Section */}
                 {aiAnalysis && (
-                  <Alert severity="success" sx={{ mt: 2 }}>
-                    <Typography variant="body2">
-                      File analyzed successfully! AI has detected {aiAnalysis.field_count || 0} fields and identified {aiAnalysis.identified_standards?.length || 0} data standards.
-                      {aiAnalysis.primary_governing_body && ` Primary governing body: ${aiAnalysis.primary_governing_body}`}
-                      {aiAnalysis.data_quality && ` Data quality: ${aiAnalysis.data_quality.overall_rating}`}
-                    </Typography>
-                  </Alert>
+                  <DataPreviewSection analysis={aiAnalysis} />
                 )}
+                
+                {/* Field Analysis Section */}
+                {aiAnalysis && aiAnalysis.field_analysis && (
+                  <FieldAnalysisSection
+                    fieldAnalysis={aiAnalysis.field_analysis}
+                    onApplySuggestions={(suggestions) => {
+                      // Convert suggestions to field mappings format
+                      const processedMappings = suggestions.map(suggestion => ({
+                        source_field: suggestion.sourceField,
+                        staging_field: suggestion.sourceField,
+                        data_type: suggestion.selectedType,
+                        postgis_type: null,
+                        is_required: suggestion.isRequired,
+                        is_primary_key: suggestion.sequenceOrder === 1,
+                        default_value: suggestion.defaultValue,
+                        constraints: '',
+                        description: suggestion.displayName
+                      }));
+                      setGeneratedMappings({ field_mappings: processedMappings });
+                    }}
+                    autoApply={true}
+                  />
+                )}
+                
+
                 
                 <Box sx={{ mt: 2 }}>
                   <Button
                     variant="contained"
                     onClick={() => setActiveStep(1)}
-                    disabled={!aiAnalysis}
+                    disabled={!aiAnalysis || !generatedMappings?.field_mappings}
                   >
                     Next: Basic Information
                   </Button>
@@ -912,6 +1038,24 @@ const DesignSystemEnhanced = () => {
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth>
+                      <InputLabel>Target Schema Type</InputLabel>
+                      <Select
+                        value={newStructure.target_schema_type}
+                        onChange={(e) => setNewStructure({...newStructure, target_schema_type: e.target.value})}
+                      >
+                        <MenuItem value="staging">Staging</MenuItem>
+                        <MenuItem value="production">Production</MenuItem>
+                        <MenuItem value="archive">Archive</MenuItem>
+                        <MenuItem value="temp">Temporary</MenuItem>
+                        <MenuItem value="backup">Backup</MenuItem>
+                        <MenuItem value="analytics">Analytics</MenuItem>
+                        <MenuItem value="reporting">Reporting</MenuItem>
+                        <MenuItem value="audit">Audit</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
                       label="Category"
@@ -960,7 +1104,7 @@ const DesignSystemEnhanced = () => {
                 {generatedMappings && (
                   <Alert severity="info" sx={{ mb: 2 }}>
                     <Typography variant="body2">
-                      AI has generated {generatedMappings.field_mappings?.length || 0} field mappings with 1-to-1 mapping to staging fields.
+                      {generatedMappings.field_mappings?.length || 0} fields have been configured and are ready for structure creation.
                     </Typography>
                   </Alert>
                 )}
@@ -999,7 +1143,7 @@ const DesignSystemEnhanced = () => {
                   <Button
                     variant="contained"
                     onClick={handleCreateStructure}
-                    disabled={!newStructure.name || !newStructure.source_type}
+                    disabled={!newStructure.name || !newStructure.source_type || !generatedMappings?.field_mappings}
                   >
                     {isEditMode ? 'Update Dataset Structure' : 'Create Dataset Structure'}
                   </Button>
@@ -1421,6 +1565,8 @@ const DesignSystemEnhanced = () => {
            </Button>
          </DialogActions>
        </Dialog>
+
+
 
       <Snackbar
         open={!!message}

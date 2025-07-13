@@ -58,7 +58,6 @@ const DesignSystem = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [structures, setStructures] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [uploads, setUploads] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [severity, setSeverity] = useState('info');
@@ -128,15 +127,13 @@ const DesignSystem = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [structuresRes, templatesRes, uploadsRes] = await Promise.all([
+      const [structuresRes, templatesRes] = await Promise.all([
         api.get('/api/design-enhanced/structures'),
-        api.get('/api/design-enhanced/templates'),
-        api.get('/api/design-enhanced/dashboard/overview')
+        api.get('/api/design-enhanced/templates')
       ]);
 
       setStructures(structuresRes.data.structures || []);
       setTemplates(templatesRes.data.templates || []);
-      setUploads(uploadsRes.data.recent_uploads || []);
     } catch (error) {
       showMessage('Error loading data: ' + error.message, 'error');
     } finally {
@@ -826,42 +823,7 @@ const DesignSystem = () => {
     </Box>
   );
 
-  const renderUploadsTab = () => (
-    <Box>
-      <Typography variant="h6" gutterBottom>Recent Uploads</Typography>
-      
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>File Name</TableCell>
-              <TableCell>Dataset</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Uploaded By</TableCell>
-              <TableCell>Upload Date</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {uploads.map((upload) => (
-              <TableRow key={upload.upload_id}>
-                <TableCell>{upload.file_name}</TableCell>
-                <TableCell>{upload.dataset_name}</TableCell>
-                <TableCell>
-                  <Chip 
-                    label={upload.processing_status} 
-                    size="small" 
-                    color={upload.processing_status === 'completed' ? 'success' : 'default'}
-                  />
-                </TableCell>
-                <TableCell>{upload.uploaded_by}</TableCell>
-                <TableCell>{new Date(upload.uploaded_at).toLocaleDateString()}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
-  );
+
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
@@ -873,13 +835,11 @@ const DesignSystem = () => {
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
           <Tab label="Dataset Structures" />
           <Tab label="Table Templates" />
-          <Tab label="Recent Uploads" />
         </Tabs>
       </Box>
 
       {activeTab === 0 && renderStructuresTab()}
       {activeTab === 1 && renderTemplatesTab()}
-      {activeTab === 2 && renderUploadsTab()}
 
       {renderStructureDialog()}
       {renderFieldDialog()}

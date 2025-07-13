@@ -37,6 +37,7 @@ import StagingTableAutocomplete from '../components/StagingTableAutocomplete';
 import StagingConfigManager from '../components/StagingConfigManager';
 import EnhancedColumnMapping from '../components/EnhancedColumnMapping';
 import UploadActionSuggestions from '../components/UploadActionSuggestions';
+import AIDatasetMatcher from '../components/AIDatasetMatcher';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -1679,6 +1680,37 @@ export default function Upload() {
               <span className="text-xs font-medium text-red-700">AI Analysis Failed</span>
             </div>
             <div className="text-xs text-red-600 mt-1">{analysis.aiAnalysis.error}</div>
+          </div>
+        )}
+
+        {/* AI Dataset Matching */}
+        {(analysis.preview?.headers && analysis.preview.headers.length > 0) || 
+         (analysis.field_analysis && analysis.field_analysis.length > 0) && (
+          <div className="mt-3">
+            <AIDatasetMatcher
+              file={file.file}
+              analysis={analysis}
+              onDatasetSelected={(match) => {
+                console.log('Dataset selected:', match);
+                toast.success(`Selected dataset: ${match.name}`);
+                // You can add logic here to apply the selected dataset configuration
+              }}
+              onRequestNewDataset={async (request) => {
+                console.log('New dataset request:', request);
+                try {
+                  // Submit the request to backend
+                  await api.post('/api/design-enhanced/dataset-requests', request);
+                  toast.success('Dataset request submitted successfully');
+                } catch (error) {
+                  console.error('Failed to submit dataset request:', error);
+                  toast.error('Failed to submit dataset request');
+                }
+              }}
+              onSkipMatching={() => {
+                console.log('Skipping dataset matching');
+                toast.info('Skipped dataset matching');
+              }}
+            />
           </div>
         )}
 

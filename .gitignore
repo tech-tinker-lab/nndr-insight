@@ -55,6 +55,7 @@ env.bak/
 venv.bak/
 .venv/
 .env/
+dev_env/
 
 # IDE and editor files
 .vscode/

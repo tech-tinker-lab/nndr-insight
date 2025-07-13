@@ -24,8 +24,13 @@ from ..services.database_service import DatabaseService
 
 router = APIRouter(prefix="/api/design-enhanced", tags=["design-enhanced"])
 
-# Data Standards Database
+# Data Standards Registry - Comprehensive Standards Database
+# This registry includes standards from public, private, government bodies, and international organizations
+
 DATA_STANDARDS = {
+    # ========================================
+    # UK GOVERNMENT STANDARDS
+    # ========================================
     "BS7666": {
         "name": "British Standard 7666 - Address and location referencing",
         "description": "UK standard for address and location referencing",
@@ -36,64 +41,26 @@ DATA_STANDARDS = {
             "postcode": r"^[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}$"
         },
         "governing_body": "BSI",
-        "country": "UK"
-    },
-    "INSPIRE": {
-        "name": "INSPIRE Directive - European spatial data infrastructure",
-        "description": "European standard for spatial data infrastructure",
-        "required_fields": ["geometry", "coordinate_reference_system"],
-        "field_patterns": {
-            "geometry": r"(point|line|polygon|multipoint|multiline|multipolygon)",
-            "coordinate_reference_system": r"(EPSG|CRS|SRID)"
-        },
-        "governing_body": "European Commission",
-        "country": "EU"
-    },
-    "OS_Standards": {
-        "name": "Ordnance Survey Data Standards",
-        "description": "UK national mapping agency standards",
-        "required_fields": ["x_coordinate", "y_coordinate", "coordinate_system"],
-        "field_patterns": {
-            "x_coordinate": r"^\d{6,7}$",
-            "y_coordinate": r"^\d{6,7}$",
-            "coordinate_system": r"(OSGB|EPSG:27700|EPSG:4326)"
-        },
-        "governing_body": "Ordnance Survey",
-        "country": "UK"
+        "country": "UK",
+        "category": "government",
+        "version": "2019",
+        "url": "https://www.bsigroup.com/en-GB/standards/bs-7666/",
+        "compliance_level": "mandatory"
     },
     "GDS": {
         "name": "Government Digital Service Standards",
-        "description": "UK government data standards",
+        "description": "UK government data standards for digital services",
         "required_fields": ["open_data", "machine_readable", "linked_data"],
         "field_patterns": {
             "open_data": r"(open|public|accessible)",
             "machine_readable": r"(csv|json|xml|rdf)"
         },
         "governing_body": "UK Government",
-        "country": "UK"
-    },
-    "SDMX": {
-        "name": "Statistical Data and Metadata eXchange",
-        "description": "International standard for statistical data",
-        "required_fields": ["statistical_concept", "measure", "dimension"],
-        "field_patterns": {
-            "statistical_concept": r"(population|employment|economic|social)",
-            "measure": r"(count|value|percentage|rate)"
-        },
-        "governing_body": "UNSD",
-        "country": "International"
-    },
-    "ISO_20022": {
-        "name": "ISO 20022 - Financial services messaging",
-        "description": "International standard for financial data",
-        "required_fields": ["transaction_id", "amount", "currency", "timestamp"],
-        "field_patterns": {
-            "transaction_id": r"^[A-Z0-9]{8,32}$",
-            "amount": r"^\d+(\.\d{2})?$",
-            "currency": r"^[A-Z]{3}$"
-        },
-        "governing_body": "ISO",
-        "country": "International"
+        "country": "UK",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.gov.uk/government/publications/open-standards-for-government",
+        "compliance_level": "recommended"
     },
     "VOA_NNDR": {
         "name": "Valuation Office Agency NNDR Standards",
@@ -105,7 +72,11 @@ DATA_STANDARDS = {
             "property_description": r".{10,}"
         },
         "governing_body": "Valuation Office Agency",
-        "country": "UK"
+        "country": "UK",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.gov.uk/government/organisations/valuation-office-agency",
+        "compliance_level": "mandatory"
     },
     "ONS_Standards": {
         "name": "Office for National Statistics Standards",
@@ -117,7 +88,808 @@ DATA_STANDARDS = {
             "measure": r"(count|value|percentage)"
         },
         "governing_body": "Office for National Statistics",
-        "country": "UK"
+        "country": "UK",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.ons.gov.uk/",
+        "compliance_level": "mandatory"
+    },
+    "OS_Standards": {
+        "name": "Ordnance Survey Data Standards",
+        "description": "UK national mapping agency standards",
+        "required_fields": ["x_coordinate", "y_coordinate", "coordinate_system"],
+        "field_patterns": {
+            "x_coordinate": r"^\d{6,7}$",
+            "y_coordinate": r"^\d{6,7}$",
+            "coordinate_system": r"(OSGB|EPSG:27700|EPSG:4326)"
+        },
+        "governing_body": "Ordnance Survey",
+        "country": "UK",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.ordnancesurvey.co.uk/",
+        "compliance_level": "recommended"
+    },
+    "Land_Registry": {
+        "name": "Land Registry Data Standards",
+        "description": "UK land and property registration standards",
+        "required_fields": ["title_number", "property_address", "price_paid"],
+        "field_patterns": {
+            "title_number": r"^[A-Z0-9]{1,10}$",
+            "price_paid": r"^\d+(\.\d{2})?$",
+            "property_address": r".{10,}"
+        },
+        "governing_body": "HM Land Registry",
+        "country": "UK",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.gov.uk/government/organisations/land-registry",
+        "compliance_level": "mandatory"
+    },
+
+    # ========================================
+    # EUROPEAN UNION STANDARDS
+    # ========================================
+    "INSPIRE": {
+        "name": "INSPIRE Directive - European spatial data infrastructure",
+        "description": "European standard for spatial data infrastructure",
+        "required_fields": ["geometry", "coordinate_reference_system"],
+        "field_patterns": {
+            "geometry": r"(point|line|polygon|multipoint|multiline|multipolygon)",
+            "coordinate_reference_system": r"(EPSG|CRS|SRID)"
+        },
+        "governing_body": "European Commission",
+        "country": "EU",
+        "category": "government",
+        "version": "2023",
+        "url": "https://inspire.ec.europa.eu/",
+        "compliance_level": "mandatory"
+    },
+    "EU_Open_Data": {
+        "name": "EU Open Data Portal Standards",
+        "description": "European Union open data standards",
+        "required_fields": ["metadata", "license", "publisher"],
+        "field_patterns": {
+            "metadata": r"(dcat|rdf|json-ld)",
+            "license": r"(CC-BY|CC-BY-SA|ODbL)",
+            "publisher": r".{3,}"
+        },
+        "governing_body": "European Commission",
+        "country": "EU",
+        "category": "government",
+        "version": "2023",
+        "url": "https://data.europa.eu/",
+        "compliance_level": "recommended"
+    },
+
+    # ========================================
+    # INTERNATIONAL STANDARDS
+    # ========================================
+    "SDMX": {
+        "name": "Statistical Data and Metadata eXchange",
+        "description": "International standard for statistical data",
+        "required_fields": ["statistical_concept", "measure", "dimension"],
+        "field_patterns": {
+            "statistical_concept": r"(population|employment|economic|social)",
+            "measure": r"(count|value|percentage|rate)"
+        },
+        "governing_body": "UNSD",
+        "country": "International",
+        "category": "international",
+        "version": "3.0",
+        "url": "https://sdmx.org/",
+        "compliance_level": "recommended"
+    },
+    "ISO_20022": {
+        "name": "ISO 20022 - Financial services messaging",
+        "description": "International standard for financial data",
+        "required_fields": ["transaction_id", "amount", "currency", "timestamp"],
+        "field_patterns": {
+            "transaction_id": r"^[A-Z0-9]{8,32}$",
+            "amount": r"^\d+(\.\d{2})?$",
+            "currency": r"^[A-Z]{3}$"
+        },
+        "governing_body": "ISO",
+        "country": "International",
+        "category": "international",
+        "version": "2023",
+        "url": "https://www.iso20022.org/",
+        "compliance_level": "recommended"
+    },
+    "ISO_19115": {
+        "name": "ISO 19115 - Geographic information metadata",
+        "description": "International standard for geographic information metadata",
+        "required_fields": ["metadata", "coordinate_system", "spatial_resolution"],
+        "field_patterns": {
+            "metadata": r"(xml|json)",
+            "coordinate_system": r"(EPSG|CRS)",
+            "spatial_resolution": r"^\d+(\.\d+)?$"
+        },
+        "governing_body": "ISO",
+        "country": "International",
+        "category": "international",
+        "version": "2018",
+        "url": "https://www.iso.org/standard/53798.html",
+        "compliance_level": "recommended"
+    },
+    "ISO_27001": {
+        "name": "ISO 27001 - Information security management",
+        "description": "International standard for information security",
+        "required_fields": ["security_classification", "access_control", "audit_trail"],
+        "field_patterns": {
+            "security_classification": r"(public|internal|confidential|restricted)",
+            "access_control": r"(role|permission|group)",
+            "audit_trail": r"(timestamp|user|action)"
+        },
+        "governing_body": "ISO",
+        "country": "International",
+        "category": "international",
+        "version": "2022",
+        "url": "https://www.iso.org/isoiec-27001-information-security.html",
+        "compliance_level": "recommended"
+    },
+    "W3C_DCAT": {
+        "name": "W3C Data Catalog Vocabulary",
+        "description": "World Wide Web Consortium data catalog standard",
+        "required_fields": ["dataset", "distribution", "catalog"],
+        "field_patterns": {
+            "dataset": r"(title|description|keyword)",
+            "distribution": r"(format|accessURL|mediaType)",
+            "catalog": r"(publisher|license|theme)"
+        },
+        "governing_body": "W3C",
+        "country": "International",
+        "category": "international",
+        "version": "2.0",
+        "url": "https://www.w3.org/TR/vocab-dcat/",
+        "compliance_level": "recommended"
+    },
+
+    # ========================================
+    # US GOVERNMENT STANDARDS
+    # ========================================
+    "US_FIPS": {
+        "name": "US Federal Information Processing Standards",
+        "description": "US government data processing standards",
+        "required_fields": ["fips_code", "state_code", "county_code"],
+        "field_patterns": {
+            "fips_code": r"^\d{5}$",
+            "state_code": r"^\d{2}$",
+            "county_code": r"^\d{3}$"
+        },
+        "governing_body": "NIST",
+        "country": "US",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.nist.gov/fips",
+        "compliance_level": "mandatory"
+    },
+    "US_Census": {
+        "name": "US Census Bureau Standards",
+        "description": "US Census Bureau data standards",
+        "required_fields": ["census_tract", "block_group", "population"],
+        "field_patterns": {
+            "census_tract": r"^\d{6}$",
+            "block_group": r"^\d{1}$",
+            "population": r"^\d+$"
+        },
+        "governing_body": "US Census Bureau",
+        "country": "US",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.census.gov/",
+        "compliance_level": "mandatory"
+    },
+
+    # ========================================
+    # PRIVATE SECTOR STANDARDS
+    # ========================================
+    "ESRI_Shapefile": {
+        "name": "ESRI Shapefile Format",
+        "description": "ESRI shapefile format standard",
+        "required_fields": ["geometry", "attributes", "projection"],
+        "field_patterns": {
+            "geometry": r"(point|line|polygon|multipoint|multiline|multipolygon)",
+            "attributes": r"(dbf|csv)",
+            "projection": r"(prj|wkt)"
+        },
+        "governing_body": "ESRI",
+        "country": "US",
+        "category": "private",
+        "version": "1998",
+        "url": "https://www.esri.com/",
+        "compliance_level": "de_facto"
+    },
+    "OpenStreetMap": {
+        "name": "OpenStreetMap Data Format",
+        "description": "OpenStreetMap community data standards",
+        "required_fields": ["osm_id", "tags", "geometry"],
+        "field_patterns": {
+            "osm_id": r"^\d+$",
+            "tags": r"(key=value|json)",
+            "geometry": r"(point|way|relation)"
+        },
+        "governing_body": "OpenStreetMap Foundation",
+        "country": "International",
+        "category": "private",
+        "version": "2023",
+        "url": "https://www.openstreetmap.org/",
+        "compliance_level": "community"
+    },
+    "GeoJSON": {
+        "name": "GeoJSON Format",
+        "description": "JSON format for geographic data",
+        "required_fields": ["type", "coordinates", "properties"],
+        "field_patterns": {
+            "type": r"(Feature|FeatureCollection|Point|LineString|Polygon)",
+            "coordinates": r"\[.*\]",
+            "properties": r"\{.*\}"
+        },
+        "governing_body": "IETF",
+        "country": "International",
+        "category": "private",
+        "version": "2016",
+        "url": "https://tools.ietf.org/html/rfc7946",
+        "compliance_level": "de_facto"
+    },
+    "KML": {
+        "name": "Keyhole Markup Language",
+        "description": "Google Earth/KML format standard",
+        "required_fields": ["placemark", "coordinates", "description"],
+        "field_patterns": {
+            "placemark": r"<Placemark>",
+            "coordinates": r"<coordinates>",
+            "description": r"<description>"
+        },
+        "governing_body": "Google",
+        "country": "US",
+        "category": "private",
+        "version": "2008",
+        "url": "https://developers.google.com/kml",
+        "compliance_level": "de_facto"
+    },
+
+    # ========================================
+    # FINANCIAL STANDARDS
+    # ========================================
+    "FIX_Protocol": {
+        "name": "Financial Information eXchange Protocol",
+        "description": "Financial trading data standard",
+        "required_fields": ["order_id", "symbol", "quantity", "price"],
+        "field_patterns": {
+            "order_id": r"^[A-Z0-9]{8,32}$",
+            "symbol": r"^[A-Z]{1,10}$",
+            "quantity": r"^\d+(\.\d+)?$",
+            "price": r"^\d+(\.\d{2,4})?$"
+        },
+        "governing_body": "FIX Protocol Ltd",
+        "country": "International",
+        "category": "financial",
+        "version": "5.0",
+        "url": "https://www.fixtrading.org/",
+        "compliance_level": "industry"
+    },
+    "SWIFT": {
+        "name": "SWIFT Financial Messaging",
+        "description": "International financial messaging standard",
+        "required_fields": ["swift_code", "amount", "currency", "beneficiary"],
+        "field_patterns": {
+            "swift_code": r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$",
+            "amount": r"^\d+(\.\d{2})?$",
+            "currency": r"^[A-Z]{3}$",
+            "beneficiary": r".{3,}"
+        },
+        "governing_body": "SWIFT",
+        "country": "International",
+        "category": "financial",
+        "version": "2023",
+        "url": "https://www.swift.com/",
+        "compliance_level": "industry"
+    },
+
+    # ========================================
+    # HEALTHCARE STANDARDS
+    # ========================================
+    "HL7_FHIR": {
+        "name": "HL7 FHIR - Fast Healthcare Interoperability Resources",
+        "description": "Healthcare data exchange standard",
+        "required_fields": ["patient_id", "resource_type", "data"],
+        "field_patterns": {
+            "patient_id": r"^[A-Z0-9-]{1,64}$",
+            "resource_type": r"(Patient|Observation|Medication|Procedure)",
+            "data": r"\{.*\}"
+        },
+        "governing_body": "HL7",
+        "country": "International",
+        "category": "healthcare",
+        "version": "4.0",
+        "url": "https://www.hl7.org/fhir/",
+        "compliance_level": "industry"
+    },
+    "DICOM": {
+        "name": "Digital Imaging and Communications in Medicine",
+        "description": "Medical imaging data standard",
+        "required_fields": ["patient_id", "study_id", "series_id", "image_data"],
+        "field_patterns": {
+            "patient_id": r"^[A-Z0-9-]{1,64}$",
+            "study_id": r"^[A-Z0-9-]{1,64}$",
+            "series_id": r"^[A-Z0-9-]{1,64}$",
+            "image_data": r"(dcm|raw|jpeg|png)"
+        },
+        "governing_body": "NEMA",
+        "country": "US",
+        "category": "healthcare",
+        "version": "2023",
+        "url": "https://www.dicomstandard.org/",
+        "compliance_level": "industry"
+    },
+
+    # ========================================
+    # TRANSPORTATION STANDARDS
+    # ========================================
+    "GTFS": {
+        "name": "General Transit Feed Specification",
+        "description": "Public transportation data standard",
+        "required_fields": ["agency_id", "route_id", "stop_id", "trip_id"],
+        "field_patterns": {
+            "agency_id": r"^[A-Z0-9_]{1,32}$",
+            "route_id": r"^[A-Z0-9_]{1,32}$",
+            "stop_id": r"^[A-Z0-9_]{1,32}$",
+            "trip_id": r"^[A-Z0-9_]{1,32}$"
+        },
+        "governing_body": "Google",
+        "country": "US",
+        "category": "transportation",
+        "version": "2.0",
+        "url": "https://developers.google.com/transit/gtfs",
+        "compliance_level": "de_facto"
+    },
+    "SIRI": {
+        "name": "Service Interface for Real Time Information",
+        "description": "Real-time public transport information standard",
+        "required_fields": ["vehicle_id", "line_id", "direction", "timestamp"],
+        "field_patterns": {
+            "vehicle_id": r"^[A-Z0-9_]{1,32}$",
+            "line_id": r"^[A-Z0-9_]{1,32}$",
+            "direction": r"(inbound|outbound|clockwise|counterclockwise)",
+            "timestamp": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+        },
+        "governing_body": "CEN",
+        "country": "EU",
+        "category": "transportation",
+        "version": "2.0",
+        "url": "https://www.siri.org.uk/",
+        "compliance_level": "industry"
+    },
+
+    # ========================================
+    # ENVIRONMENTAL STANDARDS
+    # ========================================
+    "ISO_14001": {
+        "name": "ISO 14001 - Environmental Management",
+        "description": "Environmental management system standard",
+        "required_fields": ["environmental_aspect", "impact_assessment", "compliance"],
+        "field_patterns": {
+            "environmental_aspect": r"(emissions|waste|energy|water)",
+            "impact_assessment": r"(low|medium|high|critical)",
+            "compliance": r"(compliant|non_compliant|pending)"
+        },
+        "governing_body": "ISO",
+        "country": "International",
+        "category": "environmental",
+        "version": "2015",
+        "url": "https://www.iso.org/iso-14001-environmental-management.html",
+        "compliance_level": "recommended"
+    },
+    "WMO": {
+        "name": "World Meteorological Organization Standards",
+        "description": "Meteorological and climate data standards",
+        "required_fields": ["station_id", "parameter", "value", "timestamp"],
+        "field_patterns": {
+            "station_id": r"^[A-Z0-9]{5,10}$",
+            "parameter": r"(temperature|pressure|humidity|wind|precipitation)",
+            "value": r"^-?\d+(\.\d+)?$",
+            "timestamp": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+        },
+        "governing_body": "WMO",
+        "country": "International",
+        "category": "environmental",
+        "version": "2023",
+        "url": "https://public.wmo.int/",
+        "compliance_level": "industry"
+    }
+}
+
+# Data Standards Categories for filtering and organization
+DATA_STANDARDS_CATEGORIES = {
+    "government": {
+        "name": "Government Standards",
+        "description": "Standards from government bodies and agencies",
+        "subcategories": ["uk_government", "eu_government", "us_government", "international_government"]
+    },
+    "international": {
+        "name": "International Standards",
+        "description": "Standards from international organizations",
+        "subcategories": ["iso", "w3c", "un", "other_international"]
+    },
+    "private": {
+        "name": "Private Sector Standards",
+        "description": "Standards from private companies and organizations",
+        "subcategories": ["technology", "mapping", "data_formats"]
+    },
+    "financial": {
+        "name": "Financial Standards",
+        "description": "Standards for financial data and transactions",
+        "subcategories": ["trading", "banking", "payments"]
+    },
+    "healthcare": {
+        "name": "Healthcare Standards",
+        "description": "Standards for healthcare and medical data",
+        "subcategories": ["clinical", "imaging", "pharmaceutical"]
+    },
+    "transportation": {
+        "name": "Transportation Standards",
+        "description": "Standards for transportation and logistics data",
+        "subcategories": ["public_transit", "logistics", "traffic"]
+    },
+    "environmental": {
+        "name": "Environmental Standards",
+        "description": "Standards for environmental and climate data",
+        "subcategories": ["climate", "pollution", "sustainability"]
+    }
+}
+
+# Compliance levels for standards
+COMPLIANCE_LEVELS = {
+    "mandatory": {
+        "name": "Mandatory",
+        "description": "Legally required compliance",
+        "priority": 1
+    },
+    "recommended": {
+        "name": "Recommended",
+        "description": "Best practice recommendation",
+        "priority": 2
+    },
+    "industry": {
+        "name": "Industry Standard",
+        "description": "Widely adopted industry standard",
+        "priority": 3
+    },
+    "de_facto": {
+        "name": "De Facto Standard",
+        "description": "Commonly used but not formally standardized",
+        "priority": 4
+    },
+    "community": {
+        "name": "Community Standard",
+        "description": "Community-driven standard",
+        "priority": 5
+    }
+}
+
+# Comprehensive Data Standards Registry
+DATA_STANDARDS = {
+    # ========================================
+    # US GOVERNMENT STANDARDS
+    # ========================================
+    "US_FIPS": {
+        "name": "US Federal Information Processing Standards",
+        "description": "US government data processing standards",
+        "required_fields": ["fips_code", "state_code", "county_code"],
+        "field_patterns": {
+            "fips_code": r"^\d{5}$",
+            "state_code": r"^\d{2}$",
+            "county_code": r"^\d{3}$"
+        },
+        "governing_body": "NIST",
+        "country": "US",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.nist.gov/fips",
+        "compliance_level": "mandatory"
+    },
+    "US_Census": {
+        "name": "US Census Bureau Standards",
+        "description": "US Census Bureau data standards",
+        "required_fields": ["census_tract", "block_group", "population"],
+        "field_patterns": {
+            "census_tract": r"^\d{6}$",
+            "block_group": r"^\d{1}$",
+            "population": r"^\d+$"
+        },
+        "governing_body": "US Census Bureau",
+        "country": "US",
+        "category": "government",
+        "version": "2023",
+        "url": "https://www.census.gov/",
+        "compliance_level": "mandatory"
+    },
+
+    # ========================================
+    # PRIVATE SECTOR STANDARDS
+    # ========================================
+    "ESRI_Shapefile": {
+        "name": "ESRI Shapefile Format",
+        "description": "ESRI shapefile format standard",
+        "required_fields": ["geometry", "attributes", "projection"],
+        "field_patterns": {
+            "geometry": r"(point|line|polygon|multipoint|multiline|multipolygon)",
+            "attributes": r"(dbf|csv)",
+            "projection": r"(prj|wkt)"
+        },
+        "governing_body": "ESRI",
+        "country": "US",
+        "category": "private",
+        "version": "1998",
+        "url": "https://www.esri.com/",
+        "compliance_level": "de_facto"
+    },
+    "OpenStreetMap": {
+        "name": "OpenStreetMap Data Format",
+        "description": "OpenStreetMap community data standards",
+        "required_fields": ["osm_id", "tags", "geometry"],
+        "field_patterns": {
+            "osm_id": r"^\d+$",
+            "tags": r"(key=value|json)",
+            "geometry": r"(point|way|relation)"
+        },
+        "governing_body": "OpenStreetMap Foundation",
+        "country": "International",
+        "category": "private",
+        "version": "2023",
+        "url": "https://www.openstreetmap.org/",
+        "compliance_level": "community"
+    },
+    "GeoJSON": {
+        "name": "GeoJSON Format",
+        "description": "JSON format for geographic data",
+        "required_fields": ["type", "coordinates", "properties"],
+        "field_patterns": {
+            "type": r"(Feature|FeatureCollection|Point|LineString|Polygon)",
+            "coordinates": r"\[.*\]",
+            "properties": r"\{.*\}"
+        },
+        "governing_body": "IETF",
+        "country": "International",
+        "category": "private",
+        "version": "2016",
+        "url": "https://tools.ietf.org/html/rfc7946",
+        "compliance_level": "de_facto"
+    },
+    "KML": {
+        "name": "Keyhole Markup Language",
+        "description": "Google Earth/KML format standard",
+        "required_fields": ["placemark", "coordinates", "description"],
+        "field_patterns": {
+            "placemark": r"<Placemark>",
+            "coordinates": r"<coordinates>",
+            "description": r"<description>"
+        },
+        "governing_body": "Google",
+        "country": "US",
+        "category": "private",
+        "version": "2008",
+        "url": "https://developers.google.com/kml",
+        "compliance_level": "de_facto"
+    },
+
+    # ========================================
+    # FINANCIAL STANDARDS
+    # ========================================
+    "FIX_Protocol": {
+        "name": "Financial Information eXchange Protocol",
+        "description": "Financial trading data standard",
+        "required_fields": ["order_id", "symbol", "quantity", "price"],
+        "field_patterns": {
+            "order_id": r"^[A-Z0-9]{8,32}$",
+            "symbol": r"^[A-Z]{1,10}$",
+            "quantity": r"^\d+(\.\d+)?$",
+            "price": r"^\d+(\.\d{2,4})?$"
+        },
+        "governing_body": "FIX Protocol Ltd",
+        "country": "International",
+        "category": "financial",
+        "version": "5.0",
+        "url": "https://www.fixtrading.org/",
+        "compliance_level": "industry"
+    },
+    "SWIFT": {
+        "name": "SWIFT Financial Messaging",
+        "description": "International financial messaging standard",
+        "required_fields": ["swift_code", "amount", "currency", "beneficiary"],
+        "field_patterns": {
+            "swift_code": r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$",
+            "amount": r"^\d+(\.\d{2})?$",
+            "currency": r"^[A-Z]{3}$",
+            "beneficiary": r".{3,}"
+        },
+        "governing_body": "SWIFT",
+        "country": "International",
+        "category": "financial",
+        "version": "2023",
+        "url": "https://www.swift.com/",
+        "compliance_level": "industry"
+    },
+
+    # ========================================
+    # HEALTHCARE STANDARDS
+    # ========================================
+    "HL7_FHIR": {
+        "name": "HL7 FHIR - Fast Healthcare Interoperability Resources",
+        "description": "Healthcare data exchange standard",
+        "required_fields": ["patient_id", "resource_type", "data"],
+        "field_patterns": {
+            "patient_id": r"^[A-Z0-9-]{1,64}$",
+            "resource_type": r"(Patient|Observation|Medication|Procedure)",
+            "data": r"\{.*\}"
+        },
+        "governing_body": "HL7",
+        "country": "International",
+        "category": "healthcare",
+        "version": "4.0",
+        "url": "https://www.hl7.org/fhir/",
+        "compliance_level": "industry"
+    },
+    "DICOM": {
+        "name": "Digital Imaging and Communications in Medicine",
+        "description": "Medical imaging data standard",
+        "required_fields": ["patient_id", "study_id", "series_id", "image_data"],
+        "field_patterns": {
+            "patient_id": r"^[A-Z0-9-]{1,64}$",
+            "study_id": r"^[A-Z0-9-]{1,64}$",
+            "series_id": r"^[A-Z0-9-]{1,64}$",
+            "image_data": r"(dcm|raw|jpeg|png)"
+        },
+        "governing_body": "NEMA",
+        "country": "US",
+        "category": "healthcare",
+        "version": "2023",
+        "url": "https://www.dicomstandard.org/",
+        "compliance_level": "industry"
+    },
+
+    # ========================================
+    # TRANSPORTATION STANDARDS
+    # ========================================
+    "GTFS": {
+        "name": "General Transit Feed Specification",
+        "description": "Public transportation data standard",
+        "required_fields": ["agency_id", "route_id", "stop_id", "trip_id"],
+        "field_patterns": {
+            "agency_id": r"^[A-Z0-9_]{1,32}$",
+            "route_id": r"^[A-Z0-9_]{1,32}$",
+            "stop_id": r"^[A-Z0-9_]{1,32}$",
+            "trip_id": r"^[A-Z0-9_]{1,32}$"
+        },
+        "governing_body": "Google",
+        "country": "US",
+        "category": "transportation",
+        "version": "2.0",
+        "url": "https://developers.google.com/transit/gtfs",
+        "compliance_level": "de_facto"
+    },
+    "SIRI": {
+        "name": "Service Interface for Real Time Information",
+        "description": "Real-time public transport information standard",
+        "required_fields": ["vehicle_id", "line_id", "direction", "timestamp"],
+        "field_patterns": {
+            "vehicle_id": r"^[A-Z0-9_]{1,32}$",
+            "line_id": r"^[A-Z0-9_]{1,32}$",
+            "direction": r"(inbound|outbound|clockwise|counterclockwise)",
+            "timestamp": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+        },
+        "governing_body": "CEN",
+        "country": "EU",
+        "category": "transportation",
+        "version": "2.0",
+        "url": "https://www.siri.org.uk/",
+        "compliance_level": "industry"
+    },
+
+    # ========================================
+    # ENVIRONMENTAL STANDARDS
+    # ========================================
+    "ISO_14001": {
+        "name": "ISO 14001 - Environmental Management",
+        "description": "Environmental management system standard",
+        "required_fields": ["environmental_aspect", "impact_assessment", "compliance"],
+        "field_patterns": {
+            "environmental_aspect": r"(emissions|waste|energy|water)",
+            "impact_assessment": r"(low|medium|high|critical)",
+            "compliance": r"(compliant|non_compliant|pending)"
+        },
+        "governing_body": "ISO",
+        "country": "International",
+        "category": "environmental",
+        "version": "2015",
+        "url": "https://www.iso.org/iso-14001-environmental-management.html",
+        "compliance_level": "recommended"
+    },
+    "WMO": {
+        "name": "World Meteorological Organization Standards",
+        "description": "Meteorological and climate data standards",
+        "required_fields": ["station_id", "parameter", "value", "timestamp"],
+        "field_patterns": {
+            "station_id": r"^[A-Z0-9]{5,10}$",
+            "parameter": r"(temperature|pressure|humidity|wind|precipitation)",
+            "value": r"^-?\d+(\.\d+)?$",
+            "timestamp": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+        },
+        "governing_body": "WMO",
+        "country": "International",
+        "category": "environmental",
+        "version": "2023",
+        "url": "https://public.wmo.int/",
+        "compliance_level": "industry"
+    }
+}
+
+# Data Standards Categories for filtering and organization
+DATA_STANDARDS_CATEGORIES = {
+    "government": {
+        "name": "Government Standards",
+        "description": "Standards from government bodies and agencies",
+        "subcategories": ["uk_government", "eu_government", "us_government", "international_government"]
+    },
+    "international": {
+        "name": "International Standards",
+        "description": "Standards from international organizations",
+        "subcategories": ["iso", "w3c", "un", "other_international"]
+    },
+    "private": {
+        "name": "Private Sector Standards",
+        "description": "Standards from private companies and organizations",
+        "subcategories": ["technology", "mapping", "data_formats"]
+    },
+    "financial": {
+        "name": "Financial Standards",
+        "description": "Standards for financial data and transactions",
+        "subcategories": ["trading", "banking", "payments"]
+    },
+    "healthcare": {
+        "name": "Healthcare Standards",
+        "description": "Standards for healthcare and medical data",
+        "subcategories": ["clinical", "imaging", "pharmaceutical"]
+    },
+    "transportation": {
+        "name": "Transportation Standards",
+        "description": "Standards for transportation and logistics data",
+        "subcategories": ["public_transit", "logistics", "traffic"]
+    },
+    "environmental": {
+        "name": "Environmental Standards",
+        "description": "Standards for environmental and climate data",
+        "subcategories": ["climate", "pollution", "sustainability"]
+    }
+}
+
+# Compliance levels for standards
+COMPLIANCE_LEVELS = {
+    "mandatory": {
+        "name": "Mandatory",
+        "description": "Legally required compliance",
+        "priority": 1
+    },
+    "recommended": {
+        "name": "Recommended",
+        "description": "Best practice recommendation",
+        "priority": 2
+    },
+    "industry": {
+        "name": "Industry Standard",
+        "description": "Widely adopted industry standard",
+        "priority": 3
+    },
+    "de_facto": {
+        "name": "De Facto Standard",
+        "description": "Commonly used but not formally standardized",
+        "priority": 4
+    },
+    "community": {
+        "name": "Community Standard",
+        "description": "Community-driven standard",
+        "priority": 5
     }
 }
 
@@ -319,13 +1091,30 @@ def detect_zip_format(content: bytes, filename: str) -> Dict[str, Any]:
 def analyze_field_type(values: List[str], field_index: int) -> Dict[str, Any]:
     """Analyze field type based on sample values"""
     if not values:
-        return {"type": "unknown", "confidence": 0.0}
+        return {
+            "type": "empty", 
+            "confidence": 0.0,
+            "sample_values": [],
+            "unique_count": 0,
+            "empty_count": 0,
+            "total_count": 0,
+            "reason": "No data available for analysis"
+        }
     
     # Remove empty values
     non_empty_values = [v.strip() for v in values if v.strip()]
+    empty_count = len(values) - len(non_empty_values)
     
     if not non_empty_values:
-        return {"type": "empty", "confidence": 0.0}
+        return {
+            "type": "empty", 
+            "confidence": 0.0,
+            "sample_values": [],
+            "unique_count": 0,
+            "empty_count": empty_count,
+            "total_count": len(values),
+            "reason": "All values are empty or null"
+        }
     
     # Test different data types
     type_scores = {
@@ -399,7 +1188,10 @@ def analyze_field_type(values: List[str], field_index: int) -> Dict[str, Any]:
         "type": best_type,
         "confidence": confidence,
         "sample_values": non_empty_values[:5],
-        "unique_count": len(set(non_empty_values))
+        "unique_count": len(set(non_empty_values)),
+        "empty_count": empty_count,
+        "total_count": len(values),
+        "reason": f"Detected as {best_type} with {confidence:.1%} confidence"
     }
 
 def analyze_json_structure(data: Any, max_depth: int = 3) -> Dict[str, Any]:
@@ -1557,12 +2349,128 @@ def generate_recommendations(analysis: Dict[str, Any]) -> Dict[str, Any]:
     return recommendations
 
 @router.get("/data-standards")
-async def get_data_standards():
-    """Get list of supported data standards"""
+async def get_data_standards(
+    category: Optional[str] = None,
+    country: Optional[str] = None,
+    compliance_level: Optional[str] = None,
+    governing_body: Optional[str] = None
+):
+    """Get list of supported data standards with optional filtering"""
+    filtered_standards = DATA_STANDARDS.copy()
+    
+    # Apply filters
+    if category:
+        filtered_standards = {k: v for k, v in filtered_standards.items() if v.get('category') == category}
+    
+    if country:
+        filtered_standards = {k: v for k, v in filtered_standards.items() if v.get('country') == country}
+    
+    if compliance_level:
+        filtered_standards = {k: v for k, v in filtered_standards.items() if v.get('compliance_level') == compliance_level}
+    
+    if governing_body:
+        filtered_standards = {k: v for k, v in filtered_standards.items() if v.get('governing_body') == governing_body}
+    
     return {
-        "standards": DATA_STANDARDS,
-        "count": len(DATA_STANDARDS)
+        "standards": filtered_standards,
+        "count": len(filtered_standards),
+        "total_count": len(DATA_STANDARDS),
+        "filters_applied": {
+            "category": category,
+            "country": country,
+            "compliance_level": compliance_level,
+            "governing_body": governing_body
+        }
     }
+
+@router.get("/data-standards/categories")
+async def get_data_standards_categories():
+    """Get data standards categories and subcategories"""
+    return {
+        "categories": DATA_STANDARDS_CATEGORIES,
+        "count": len(DATA_STANDARDS_CATEGORIES)
+    }
+
+@router.get("/data-standards/compliance-levels")
+async def get_compliance_levels():
+    """Get compliance levels for data standards"""
+    return {
+        "compliance_levels": COMPLIANCE_LEVELS,
+        "count": len(COMPLIANCE_LEVELS)
+    }
+
+@router.get("/data-standards/{standard_id}")
+async def get_data_standard(standard_id: str):
+    """Get specific data standard by ID"""
+    if standard_id not in DATA_STANDARDS:
+        raise HTTPException(status_code=404, detail=f"Data standard '{standard_id}' not found")
+    
+    return {
+        "standard": DATA_STANDARDS[standard_id],
+        "id": standard_id
+    }
+
+@router.get("/data-standards/search")
+async def search_data_standards(
+    query: str,
+    category: Optional[str] = None,
+    country: Optional[str] = None
+):
+    """Search data standards by name, description, or governing body"""
+    results = []
+    query_lower = query.lower()
+    
+    for standard_id, standard in DATA_STANDARDS.items():
+        # Skip if category filter doesn't match
+        if category and standard.get('category') != category:
+            continue
+        
+        # Skip if country filter doesn't match
+        if country and standard.get('country') != country:
+            continue
+        
+        # Search in name, description, and governing body
+        if (query_lower in standard.get('name', '').lower() or
+            query_lower in standard.get('description', '').lower() or
+            query_lower in standard.get('governing_body', '').lower()):
+            results.append({
+                "id": standard_id,
+                **standard
+            })
+    
+    return {
+        "results": results,
+        "count": len(results),
+        "query": query,
+        "filters": {"category": category, "country": country}
+    }
+
+@router.get("/data-standards/statistics")
+async def get_data_standards_statistics():
+    """Get statistics about data standards"""
+    stats = {
+        "total_standards": len(DATA_STANDARDS),
+        "by_category": {},
+        "by_country": {},
+        "by_compliance_level": {},
+        "by_governing_body": {}
+    }
+    
+    # Count by category
+    for standard in DATA_STANDARDS.values():
+        category = standard.get('category', 'unknown')
+        stats['by_category'][category] = stats['by_category'].get(category, 0) + 1
+        
+        country = standard.get('country', 'unknown')
+        stats['by_country'][country] = stats['by_country'].get(country, 0) + 1
+        
+        compliance = standard.get('compliance_level', 'unknown')
+        stats['by_compliance_level'][compliance] = stats['by_compliance_level'].get(compliance, 0) + 1
+        
+        governing_body = standard.get('governing_body', 'unknown')
+        stats['by_governing_body'][governing_body] = stats['by_governing_body'].get(governing_body, 0) + 1
+    
+    return stats
 
 @router.get("/test")
 async def test_endpoint():
@@ -1571,6 +2479,50 @@ async def test_endpoint():
         "message": "Design Enhanced API is working",
         "timestamp": datetime.now().isoformat()
     }
+
+@router.get("/data-types")
+async def get_available_data_types():
+    """Get list of available data types for field mapping"""
+    data_types = [
+        # Standard PostgreSQL types
+        {"value": "text", "label": "Text", "description": "Variable-length character string", "postgres_type": "TEXT"},
+        {"value": "varchar", "label": "VARCHAR", "description": "Variable-length character string with max length", "postgres_type": "VARCHAR(255)"},
+        {"value": "integer", "label": "Integer", "description": "Whole number", "postgres_type": "INTEGER"},
+        {"value": "bigint", "label": "Big Integer", "description": "Large whole number (e.g., UPRN)", "postgres_type": "BIGINT"},
+        {"value": "decimal", "label": "Decimal", "description": "Fixed-point decimal number", "postgres_type": "DECIMAL(10,2)"},
+        {"value": "numeric", "label": "Numeric", "description": "Variable-precision decimal number", "postgres_type": "NUMERIC"},
+        {"value": "date", "label": "Date", "description": "Date without time", "postgres_type": "DATE"},
+        {"value": "timestamp", "label": "Timestamp", "description": "Date and time", "postgres_type": "TIMESTAMP"},
+        {"value": "boolean", "label": "Boolean", "description": "True/false value", "postgres_type": "BOOLEAN"},
+        {"value": "json", "label": "JSON", "description": "JSON data type", "postgres_type": "JSONB"},
+        {"value": "uuid", "label": "UUID", "description": "Universally unique identifier", "postgres_type": "UUID"},
+        
+        # PostGIS Geometry types
+        {"value": "geometry", "label": "Geometry", "description": "Generic geometry type (PostGIS)", "postgres_type": "GEOMETRY"},
+        {"value": "geometry_point", "label": "Geometry (Point)", "description": "Point geometry with SRID 4326", "postgres_type": "GEOMETRY(POINT,4326)"},
+        {"value": "geometry_linestring", "label": "Geometry (LineString)", "description": "LineString geometry with SRID 4326", "postgres_type": "GEOMETRY(LINESTRING,4326)"},
+        {"value": "geometry_polygon", "label": "Geometry (Polygon)", "description": "Polygon geometry with SRID 4326", "postgres_type": "GEOMETRY(POLYGON,4326)"},
+        {"value": "geometry_multipoint", "label": "Geometry (MultiPoint)", "description": "MultiPoint geometry with SRID 4326", "postgres_type": "GEOMETRY(MULTIPOINT,4326)"},
+        {"value": "geometry_multilinestring", "label": "Geometry (MultiLineString)", "description": "MultiLineString geometry with SRID 4326", "postgres_type": "GEOMETRY(MULTILINESTRING,4326)"},
+        {"value": "geometry_multipolygon", "label": "Geometry (MultiPolygon)", "description": "MultiPolygon geometry with SRID 4326", "postgres_type": "GEOMETRY(MULTIPOLYGON,4326)"},
+        {"value": "geometry_collection", "label": "Geometry (GeometryCollection)", "description": "GeometryCollection with SRID 4326", "postgres_type": "GEOMETRY(GEOMETRYCOLLECTION,4326)"},
+        
+        # PostGIS Geography types
+        {"value": "geography", "label": "Geography", "description": "Generic geography type (PostGIS)", "postgres_type": "GEOGRAPHY"},
+        {"value": "geography_point", "label": "Geography (Point)", "description": "Point geography with SRID 4326", "postgres_type": "GEOGRAPHY(POINT,4326)"},
+        {"value": "geography_linestring", "label": "Geography (LineString)", "description": "LineString geography with SRID 4326", "postgres_type": "GEOGRAPHY(LINESTRING,4326)"},
+        {"value": "geography_polygon", "label": "Geography (Polygon)", "description": "Polygon geography with SRID 4326", "postgres_type": "GEOGRAPHY(POLYGON,4326)"},
+        {"value": "geography_multipoint", "label": "Geography (MultiPoint)", "description": "MultiPoint geography with SRID 4326", "postgres_type": "GEOGRAPHY(MULTIPOINT,4326)"},
+        {"value": "geography_multilinestring", "label": "Geography (MultiLineString)", "description": "MultiLineString geography with SRID 4326", "postgres_type": "GEOGRAPHY(MULTILINESTRING,4326)"},
+        {"value": "geography_multipolygon", "label": "Geography (MultiPolygon)", "description": "MultiPolygon geography with SRID 4326", "postgres_type": "GEOGRAPHY(MULTIPOLYGON,4326)"},
+        {"value": "geography_collection", "label": "Geography (GeometryCollection)", "description": "GeometryCollection geography with SRID 4326", "postgres_type": "GEOGRAPHY(GEOMETRYCOLLECTION,4326)"},
+        
+        # Specialized PostGIS types
+        {"value": "box2d", "label": "Box2D", "description": "2D bounding box", "postgres_type": "BOX2D"},
+        {"value": "box3d", "label": "Box3D", "description": "3D bounding box", "postgres_type": "BOX3D"},
+        {"value": "raster", "label": "Raster", "description": "Raster data type", "postgres_type": "RASTER"}
+    ]
+    return {"data_types": data_types}
 
 # Placeholder endpoints for backward compatibility (to prevent 404 errors)
 @router.get("/ai/knowledge")
@@ -2466,3 +3418,436 @@ def generate_ddl_script(template, fields, table_name):
             ddl_parts.append(f"\nCREATE INDEX idx_{table_name}_{field['field_name']} ON {template['schema_name']}.{table_name} USING GIST ({field['field_name']});")
     
     return "\n".join(ddl_parts) 
+
+@router.get("/data-standards/analytics")
+async def get_data_standards_analytics(
+    time_period: Optional[str] = "30d",  # 7d, 30d, 90d, 1y, all
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get data-driven analytics about data standards usage and effectiveness"""
+    
+    # Calculate usage patterns
+    usage_analytics = {
+        "standards_usage": {},
+        "detection_accuracy": {},
+        "compliance_trends": {},
+        "field_pattern_effectiveness": {},
+        "geographic_distribution": {},
+        "industry_adoption": {},
+        "version_evolution": {}
+    }
+    
+    # Analyze standards by usage frequency
+    for standard_id, standard in DATA_STANDARDS.items():
+        usage_analytics["standards_usage"][standard_id] = {
+            "name": standard["name"],
+            "category": standard["category"],
+            "compliance_level": standard["compliance_level"],
+            "country": standard["country"],
+            "detection_count": 0,  # Would be populated from actual usage data
+            "success_rate": 0.85,  # Mock data - would come from real analytics
+            "avg_confidence": 0.78,  # Mock data
+            "last_detected": "2023-12-01",  # Mock data
+            "trend": "increasing"  # Mock data
+        }
+    
+    # Calculate detection accuracy by category
+    category_accuracy = {}
+    for standard in DATA_STANDARDS.values():
+        category = standard["category"]
+        if category not in category_accuracy:
+            category_accuracy[category] = {
+                "total_standards": 0,
+                "avg_confidence": 0,
+                "detection_rate": 0
+            }
+        category_accuracy[category]["total_standards"] += 1
+    
+    usage_analytics["detection_accuracy"] = category_accuracy
+    
+    # Compliance trends analysis
+    compliance_trends = {}
+    for standard in DATA_STANDARDS.values():
+        level = standard["compliance_level"]
+        if level not in compliance_trends:
+            compliance_trends[level] = {
+                "count": 0,
+                "countries": set(),
+                "categories": set()
+            }
+        compliance_trends[level]["count"] += 1
+        compliance_trends[level]["countries"].add(standard["country"])
+        compliance_trends[level]["categories"].add(standard["category"])
+    
+    # Convert sets to lists for JSON serialization
+    for level in compliance_trends:
+        compliance_trends[level]["countries"] = list(compliance_trends[level]["countries"])
+        compliance_trends[level]["categories"] = list(compliance_trends[level]["categories"])
+    
+    usage_analytics["compliance_trends"] = compliance_trends
+    
+    # Field pattern effectiveness analysis
+    pattern_effectiveness = {
+        "most_effective_patterns": [],
+        "pattern_coverage": {},
+        "validation_success_rate": {}
+    }
+    
+    # Analyze field patterns across all standards
+    all_patterns = {}
+    for standard in DATA_STANDARDS.values():
+        for field, pattern in standard.get("field_patterns", {}).items():
+            if pattern not in all_patterns:
+                all_patterns[pattern] = {
+                    "usage_count": 0,
+                    "standards": [],
+                    "field_types": []
+                }
+            all_patterns[pattern]["usage_count"] += 1
+            all_patterns[pattern]["standards"].append(standard["name"])
+            all_patterns[pattern]["field_types"].append(field)
+    
+    # Sort patterns by usage
+    sorted_patterns = sorted(all_patterns.items(), key=lambda x: x[1]["usage_count"], reverse=True)
+    pattern_effectiveness["most_effective_patterns"] = sorted_patterns[:10]
+    pattern_effectiveness["pattern_coverage"] = all_patterns
+    
+    usage_analytics["field_pattern_effectiveness"] = pattern_effectiveness
+    
+    # Geographic distribution analysis
+    geographic_distribution = {}
+    for standard in DATA_STANDARDS.values():
+        country = standard["country"]
+        if country not in geographic_distribution:
+            geographic_distribution[country] = {
+                "standards_count": 0,
+                "categories": set(),
+                "compliance_levels": set(),
+                "governing_bodies": set()
+            }
+        geographic_distribution[country]["standards_count"] += 1
+        geographic_distribution[country]["categories"].add(standard["category"])
+        geographic_distribution[country]["compliance_levels"].add(standard["compliance_level"])
+        geographic_distribution[country]["governing_bodies"].add(standard["governing_body"])
+    
+    # Convert sets to lists
+    for country in geographic_distribution:
+        geographic_distribution[country]["categories"] = list(geographic_distribution[country]["categories"])
+        geographic_distribution[country]["compliance_levels"] = list(geographic_distribution[country]["compliance_levels"])
+        geographic_distribution[country]["governing_bodies"] = list(geographic_distribution[country]["governing_bodies"])
+    
+    usage_analytics["geographic_distribution"] = geographic_distribution
+    
+    # Industry adoption analysis
+    industry_adoption = {}
+    for standard in DATA_STANDARDS.values():
+        category = standard["category"]
+        if category not in industry_adoption:
+            industry_adoption[category] = {
+                "standards_count": 0,
+                "countries": set(),
+                "avg_compliance_level": "",
+                "governing_bodies": set()
+            }
+        industry_adoption[category]["standards_count"] += 1
+        industry_adoption[category]["countries"].add(standard["country"])
+        industry_adoption[category]["governing_bodies"].add(standard["governing_body"])
+    
+    # Convert sets to lists and calculate averages
+    for category in industry_adoption:
+        industry_adoption[category]["countries"] = list(industry_adoption[category]["countries"])
+        industry_adoption[category]["governing_bodies"] = list(industry_adoption[category]["governing_bodies"])
+    
+    usage_analytics["industry_adoption"] = industry_adoption
+    
+    # Version evolution analysis
+    version_evolution = {
+        "latest_versions": {},
+        "version_distribution": {},
+        "update_frequency": {}
+    }
+    
+    for standard in DATA_STANDARDS.values():
+        governing_body = standard["governing_body"]
+        version = standard["version"]
+        
+        if governing_body not in version_evolution["latest_versions"]:
+            version_evolution["latest_versions"][governing_body] = []
+        
+        version_evolution["latest_versions"][governing_body].append({
+            "standard_name": standard["name"],
+            "version": version,
+            "category": standard["category"]
+        })
+    
+    usage_analytics["version_evolution"] = version_evolution
+    
+    return {
+        "analytics": usage_analytics,
+        "time_period": time_period,
+        "filters_applied": {"category": category},
+        "summary": {
+            "total_standards_analyzed": len(DATA_STANDARDS),
+            "categories_covered": len(set(s["category"] for s in DATA_STANDARDS.values())),
+            "countries_represented": len(set(s["country"] for s in DATA_STANDARDS.values())),
+            "governing_bodies": len(set(s["governing_body"] for s in DATA_STANDARDS.values())),
+            "avg_confidence_score": 0.82,  # Mock data
+            "detection_accuracy": 0.89  # Mock data
+        }
+    }
+
+@router.get("/data-standards/recommendations")
+async def get_data_driven_recommendations(
+    dataset_analysis: Optional[dict] = None,
+    industry: Optional[str] = None,
+    region: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get data-driven recommendations for standards based on dataset analysis"""
+    
+    recommendations = {
+        "recommended_standards": [],
+        "compliance_gaps": [],
+        "field_mapping_suggestions": [],
+        "quality_improvements": [],
+        "industry_best_practices": []
+    }
+    
+    # Mock data-driven recommendations based on dataset analysis
+    if dataset_analysis:
+        # Analyze dataset characteristics and recommend standards
+        field_names = dataset_analysis.get("field_names", [])
+        data_types = dataset_analysis.get("data_types", [])
+        sample_values = dataset_analysis.get("sample_values", {})
+        
+        # Find matching standards
+        for standard_id, standard in DATA_STANDARDS.items():
+            confidence = 0.0
+            matched_fields = []
+            
+            # Check field name matches
+            for field_name in field_names:
+                for required_field in standard.get("required_fields", []):
+                    if required_field.lower() in field_name.lower() or field_name.lower() in required_field.lower():
+                        matched_fields.append(required_field)
+                        confidence += 0.3
+            
+            # Check data type compatibility
+            for data_type in data_types:
+                if data_type in ["text", "string"] and any("postcode" in f.lower() for f in field_names):
+                    confidence += 0.2
+                elif data_type in ["numeric", "decimal"] and any("amount" in f.lower() or "value" in f.lower() for f in field_names):
+                    confidence += 0.2
+            
+            if confidence > 0.5:
+                recommendations["recommended_standards"].append({
+                    "standard_id": standard_id,
+                    "name": standard["name"],
+                    "confidence": min(confidence, 1.0),
+                    "matched_fields": matched_fields,
+                    "category": standard["category"],
+                    "compliance_level": standard["compliance_level"],
+                    "reasoning": f"Matched {len(matched_fields)} fields with {confidence:.1%} confidence"
+                })
+    
+    # Industry-specific recommendations
+    if industry:
+        industry_standards = {
+            "financial": ["ISO_20022", "FIX_Protocol", "SWIFT"],
+            "healthcare": ["HL7_FHIR", "DICOM"],
+            "transportation": ["GTFS", "SIRI"],
+            "environmental": ["ISO_14001", "WMO"],
+            "government": ["BS7666", "INSPIRE", "GDS"]
+        }
+        
+        if industry in industry_standards:
+            for standard_id in industry_standards[industry]:
+                if standard_id in DATA_STANDARDS:
+                    standard = DATA_STANDARDS[standard_id]
+                    recommendations["industry_best_practices"].append({
+                        "standard_id": standard_id,
+                        "name": standard["name"],
+                        "category": standard["category"],
+                        "compliance_level": standard["compliance_level"],
+                        "reasoning": f"Industry standard for {industry} sector"
+                    })
+    
+    # Regional recommendations
+    if region:
+        regional_standards = {
+            "UK": ["BS7666", "OS_Standards", "ONS_Standards", "VOA_NNDR"],
+            "EU": ["INSPIRE", "EU_Open_Data"],
+            "US": ["US_FIPS", "US_Census"]
+        }
+        
+        if region in regional_standards:
+            for standard_id in regional_standards[region]:
+                if standard_id in DATA_STANDARDS:
+                    standard = DATA_STANDARDS[standard_id]
+                    recommendations["recommended_standards"].append({
+                        "standard_id": standard_id,
+                        "name": standard["name"],
+                        "confidence": 0.9,
+                        "category": standard["category"],
+                        "compliance_level": standard["compliance_level"],
+                        "reasoning": f"Regional standard for {region}"
+                    })
+    
+    # Sort recommendations by confidence
+    recommendations["recommended_standards"].sort(key=lambda x: x["confidence"], reverse=True)
+    
+    return {
+        "recommendations": recommendations,
+        "analysis_parameters": {
+            "dataset_analysis": dataset_analysis is not None,
+            "industry": industry,
+            "region": region
+        },
+        "total_recommendations": len(recommendations["recommended_standards"]) + len(recommendations["industry_best_practices"])
+    }
+
+@router.post("/dataset-requests")
+async def create_dataset_request(
+    request_data: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Create a new dataset request"""
+    try:
+        request_id = str(uuid.uuid4())
+        
+        # Insert the request into the database
+        query = text("""
+            INSERT INTO design.dataset_requests (
+                request_id, name, description, category, source_type, reason,
+                requested_by, requested_at, status
+            ) VALUES (
+                :request_id, :name, :description, :category, :source_type, :reason,
+                :requested_by, :requested_at, 'pending'
+            )
+        """)
+        
+        db.execute(query, {
+            "request_id": request_id,
+            "name": request_data.get("name", ""),
+            "description": request_data.get("description", ""),
+            "category": request_data.get("category", ""),
+            "source_type": request_data.get("source_type", "file"),
+            "reason": request_data.get("reason", ""),
+            "requested_by": current_user.username,
+            "requested_at": datetime.utcnow()
+        })
+        
+        db.commit()
+        
+        return {
+            "message": "Dataset request created successfully",
+            "request_id": request_id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating dataset request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create dataset request: {str(e)}")
+
+@router.get("/data-standards/performance-metrics")
+async def get_performance_metrics(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get performance metrics for data standards detection and validation"""
+    
+    # Mock performance metrics - in real implementation, these would come from actual usage data
+    performance_metrics = {
+        "detection_performance": {
+            "total_detections": 1247,
+            "successful_detections": 1123,
+            "failed_detections": 124,
+            "success_rate": 0.90,
+            "avg_detection_time_ms": 45,
+            "peak_detection_time_ms": 120
+        },
+        "accuracy_metrics": {
+            "overall_accuracy": 0.89,
+            "precision": 0.92,
+            "recall": 0.87,
+            "f1_score": 0.89,
+            "false_positives": 23,
+            "false_negatives": 45
+        },
+        "standards_performance": {},
+        "category_performance": {},
+        "compliance_performance": {},
+        "trends": {
+            "daily_detections": [],
+            "weekly_accuracy": [],
+            "monthly_improvements": []
+        }
+    }
+    
+    # Calculate performance by standard
+    for standard_id, standard in DATA_STANDARDS.items():
+        # Mock performance data for each standard
+        performance_metrics["standards_performance"][standard_id] = {
+            "name": standard["name"],
+            "detection_count": 50 + (hash(standard_id) % 100),  # Mock data
+            "success_rate": 0.85 + (hash(standard_id) % 15) / 100,  # Mock data
+            "avg_confidence": 0.78 + (hash(standard_id) % 20) / 100,  # Mock data
+            "last_used": "2023-12-01",  # Mock data
+            "trend": "stable"  # Mock data
+        }
+    
+    # Calculate performance by category
+    for category in DATA_STANDARDS_CATEGORIES:
+        category_standards = [s for s in DATA_STANDARDS.values() if s["category"] == category]
+        if category_standards:
+            avg_success_rate = sum(0.85 + (hash(s["name"]) % 15) / 100 for s in category_standards) / len(category_standards)
+            performance_metrics["category_performance"][category] = {
+                "standards_count": len(category_standards),
+                "avg_success_rate": avg_success_rate,
+                "total_detections": len(category_standards) * 75,  # Mock data
+                "category_name": DATA_STANDARDS_CATEGORIES[category]["name"]
+            }
+    
+    # Calculate performance by compliance level
+    for level in COMPLIANCE_LEVELS:
+        level_standards = [s for s in DATA_STANDARDS.values() if s["compliance_level"] == level]
+        if level_standards:
+            avg_success_rate = sum(0.85 + (hash(s["name"]) % 15) / 100 for s in level_standards) / len(level_standards)
+            performance_metrics["compliance_performance"][level] = {
+                "standards_count": len(level_standards),
+                "avg_success_rate": avg_success_rate,
+                "compliance_name": COMPLIANCE_LEVELS[level]["name"],
+                "priority": COMPLIANCE_LEVELS[level]["priority"]
+            }
+    
+    # Mock trend data
+    for i in range(30):  # Last 30 days
+        performance_metrics["trends"]["daily_detections"].append({
+            "date": f"2023-12-{i+1:02d}",
+            "detections": 30 + (i % 20),
+            "success_rate": 0.85 + (i % 10) / 100
+        })
+    
+    return {
+        "performance_metrics": performance_metrics,
+        "date_range": {
+            "start_date": start_date or "2023-11-01",
+            "end_date": end_date or "2023-12-01"
+        },
+        "summary": {
+            "overall_success_rate": 0.90,
+            "total_standards_tracked": len(DATA_STANDARDS),
+            "improvement_trend": "positive",
+            "recommendations": [
+                "Consider adding more healthcare standards for better coverage",
+                "Financial standards show high accuracy - consider expanding",
+                "Environmental standards need more validation data"
+            ]
+        }
+    }
