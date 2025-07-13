@@ -16,11 +16,14 @@ import re
 from pathlib import Path
 import mimetypes
 import chardet
+import logging
 
 from ..services.database_service import get_db
 from ..routers.admin import require_authenticated_user, require_admin_or_power
 from ..models import User
 from ..services.database_service import DatabaseService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/design-enhanced", tags=["design-enhanced"])
 
@@ -2582,10 +2585,177 @@ async def get_plugins_placeholder(
     return {"plugins": []}
 
 # Dataset Structure Management
+@router.get("/types")
+async def get_dataset_types(
+    category: Optional[str] = None,
+    governing_body: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get dataset types with optional filtering"""
+    try:
+        query = """
+            SELECT 
+                type_id,
+                type_name,
+                display_name,
+                description,
+                category,
+                governing_body,
+                data_standards,
+                required_fields,
+                optional_fields,
+                validation_rules,
+                sample_data,
+                created_by,
+                created_at,
+                updated_at,
+                is_active
+            FROM design_enhanced.dataset_types
+            WHERE is_active = true
+        """
+        params = {}
+        
+        if category:
+            query += " AND category = :category"
+            params["category"] = category
+            
+        if governing_body:
+            query += " AND governing_body = :governing_body"
+            params["governing_body"] = governing_body
+            
+        query += " ORDER BY display_name"
+        
+        result = db.execute(text(query), params)
+        types = [dict(row._mapping) for row in result.fetchall()]
+        
+        return {
+            "types": types,
+            "total": len(types)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching dataset types: {str(e)}")
+
+@router.post("/types")
+async def create_dataset_type(
+    type_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_power)
+):
+    """Create new dataset type"""
+    try:
+        type_id = str(uuid.uuid4())
+        query = """
+            INSERT INTO design_enhanced.dataset_types 
+            (type_id, type_name, display_name, description, category, governing_body,
+             data_standards, required_fields, optional_fields, validation_rules, 
+             sample_data, created_by)
+            VALUES (:type_id, :type_name, :display_name, :description, :category, :governing_body,
+                    :data_standards, :required_fields, :optional_fields, :validation_rules,
+                    :sample_data, :created_by)
+        """
+        
+        db.execute(text(query), {
+            "type_id": type_id,
+            "type_name": type_data["type_name"],
+            "display_name": type_data["display_name"],
+            "description": type_data.get("description"),
+            "category": type_data["category"],
+            "governing_body": type_data.get("governing_body"),
+            "data_standards": json.dumps(type_data.get("data_standards", [])),
+            "required_fields": json.dumps(type_data.get("required_fields", [])),
+            "optional_fields": json.dumps(type_data.get("optional_fields", [])),
+            "validation_rules": json.dumps(type_data.get("validation_rules", [])),
+            "sample_data": json.dumps(type_data.get("sample_data", {})),
+            "created_by": current_user.username
+        })
+        
+        db.commit()
+        
+        return {
+            "message": "Dataset type created successfully",
+            "type_id": type_id
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creating dataset type: {str(e)}")
+
+@router.get("/types/{type_id}")
+async def get_dataset_type(
+    type_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get specific dataset type"""
+    try:
+        query = """
+            SELECT 
+                type_id,
+                type_name,
+                display_name,
+                description,
+                category,
+                governing_body,
+                data_standards,
+                required_fields,
+                optional_fields,
+                validation_rules,
+                sample_data,
+                created_by,
+                created_at,
+                updated_at,
+                is_active
+            FROM design_enhanced.dataset_types
+            WHERE type_id = :type_id AND is_active = true
+        """
+        
+        result = db.execute(text(query), {"type_id": type_id})
+        type_data = result.fetchone()
+        
+        if not type_data:
+            raise HTTPException(status_code=404, detail="Dataset type not found")
+            
+        return dict(type_data._mapping)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching dataset type: {str(e)}")
+
+@router.delete("/types/{type_id}")
+async def delete_dataset_type(
+    type_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_power)
+):
+    """Delete a dataset type"""
+    try:
+        # Check if type exists
+        check_query = "SELECT type_id FROM design_enhanced.dataset_types WHERE type_id = :type_id AND is_active = true"
+        check_result = db.execute(text(check_query), {"type_id": type_id}).fetchone()
+        
+        if not check_result:
+            raise HTTPException(status_code=404, detail="Dataset type not found")
+        
+        # Soft delete by setting is_active to false
+        delete_query = """
+            UPDATE design_enhanced.dataset_types 
+            SET is_active = false, updated_at = CURRENT_TIMESTAMP
+            WHERE type_id = :type_id
+        """
+        
+        db.execute(text(delete_query), {"type_id": type_id})
+        db.commit()
+        
+        return {"message": "Dataset type deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting dataset type: {str(e)}")
+
 @router.get("/structures")
 async def get_dataset_structures(
     source_type: Optional[str] = None,
     status: Optional[str] = None,
+    dataset_type: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_authenticated_user)
 ):
@@ -2604,6 +2774,10 @@ async def get_dataset_structures(
         if status:
             query += " AND status = :status"
             params['status'] = status
+            
+        if dataset_type:
+            query += " AND dataset_type = :dataset_type"
+            params['dataset_type'] = dataset_type
             
         query += " ORDER BY created_at DESC"
         
@@ -2651,10 +2825,12 @@ async def create_dataset_structure(
         structure_id = str(uuid.uuid4())
         query = """
             INSERT INTO design_enhanced.dataset_structures 
-            (structure_id, dataset_name, description, source_type, file_formats, 
-             governing_body, data_standards, business_owner, data_steward, created_by, tags)
-            VALUES (:structure_id, :dataset_name, :description, :source_type, :file_formats,
-                    :governing_body, :data_standards, :business_owner, :data_steward, :created_by, :tags)
+            (structure_id, dataset_name, description, dataset_type, source_type, file_formats, 
+             governing_body, data_standards, business_owner, data_steward, ingestion_pattern, 
+             target_schema_type, created_by, tags)
+            VALUES (:structure_id, :dataset_name, :description, :dataset_type, :source_type, :file_formats,
+                    :governing_body, :data_standards, :business_owner, :data_steward, :ingestion_pattern,
+                    :target_schema_type, :created_by, :tags)
         """
         
         # Map source_type to valid database values
@@ -2666,12 +2842,15 @@ async def create_dataset_structure(
             "structure_id": structure_id,
             "dataset_name": dataset_name,
             "description": structure_data.get("description", ""),
+            "dataset_type": structure_data.get("dataset_type", "property"),
             "source_type": source_type,
             "file_formats": json.dumps(structure_data.get("file_formats", [])),
             "governing_body": structure_data.get("governing_body"),
             "data_standards": json.dumps(structure_data.get("data_standards", [])),
             "business_owner": structure_data.get("business_owner"),
             "data_steward": structure_data.get("data_steward"),
+            "ingestion_pattern": structure_data.get("ingestion_pattern", "standard"),
+            "target_schema_type": structure_data.get("target_schema_type", "staging"),
             "created_by": current_user.username,
             "tags": json.dumps(structure_data.get("tags", []))
         }
@@ -3737,7 +3916,7 @@ async def create_dataset_request(
             "category": request_data.get("category", ""),
             "source_type": request_data.get("source_type", "file"),
             "reason": request_data.get("reason", ""),
-            "requested_by": current_user.username,
+            "requested_by": current_user.get("username", "unknown"),
             "requested_at": datetime.utcnow()
         })
         

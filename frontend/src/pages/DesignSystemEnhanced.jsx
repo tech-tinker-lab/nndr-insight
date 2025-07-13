@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api/axios';
 import FileAnalysisSection from '../components/FileAnalysisSection';
+import ClientSideFileAnalysis from '../components/ClientSideFileAnalysis';
 import DataPreviewSection from '../components/DataPreviewSection';
 import FieldAnalysisSection from '../components/FieldAnalysisSection';
 import {
@@ -84,11 +85,15 @@ import {
   Assessment as AssessmentIcon
 } from '@mui/icons-material';
 
-const DesignSystemEnhanced = () => {
+const DatasetStructures = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [severity, setSeverity] = useState('info');
+  
+  // Dataset Types
+  const [datasetTypes, setDatasetTypes] = useState([]);
+  const [selectedType, setSelectedType] = useState(null);
   
   // Dataset Structures
   const [datasetStructures, setDatasetStructures] = useState([]);
@@ -124,6 +129,7 @@ const DesignSystemEnhanced = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [generatedMappings, setGeneratedMappings] = useState(null);
+  const [useClientSideAnalysis, setUseClientSideAnalysis] = useState(true);
   
   // Table Structure View
   const [structureFields, setStructureFields] = useState([]);
@@ -178,13 +184,16 @@ const DesignSystemEnhanced = () => {
     try {
       setLoading(true);
       const [
+        typesResponse,
         structuresResponse,
         templatesResponse
       ] = await Promise.all([
-        api.get('/api/design-enhanced/structures'),
-        api.get('/api/design-enhanced/templates')
+        api.get('/api/dataset-structures/types'),
+        api.get('/api/dataset-structures/structures'),
+        api.get('/api/dataset-structures/templates')
       ]);
 
+      setDatasetTypes(typesResponse.data.types || []);
       setDatasetStructures(structuresResponse.data.structures || []);
       setTableTemplates(templatesResponse.data.templates || []);
       setGeneratedTables([]); // Not implemented yet
@@ -251,6 +260,26 @@ const DesignSystemEnhanced = () => {
     setDeleteDialog(true);
   };
 
+  const handleDeleteType = async (type) => {
+    if (!type) return;
+    
+    try {
+      setLoading(true);
+      await api.delete(`/api/dataset-structures/types/${type.type_id}`);
+      
+      // Remove from local state
+      setDatasetTypes(prev => 
+        prev.filter(t => t.type_id !== type.type_id)
+      );
+      
+      showMessage('Dataset type deleted successfully', 'success');
+    } catch (error) {
+      showMessage('Error deleting dataset type: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const confirmDeleteStructure = async () => {
     if (!structureToDelete) return;
     
@@ -297,7 +326,7 @@ const DesignSystemEnhanced = () => {
         showMessage('Dataset structure updated successfully!', 'success');
       } else {
         // Create new structure
-        response = await api.post('/api/design-enhanced/structures', structureData);
+        response = await api.post('/api/dataset-structures/structures', structureData);
         structureId = response.data.structure_id;
         showMessage('Dataset structure created successfully!', 'success');
       }
@@ -310,6 +339,16 @@ const DesignSystemEnhanced = () => {
           showMessage(`Created ${generatedMappings.field_mappings.length} field definitions!`, 'success');
         } catch (fieldError) {
           console.error('Error creating fields:', fieldError);
+          showMessage('Structure created but field creation failed: ' + fieldError.message, 'warning');
+        }
+      } else if (structureId && aiAnalysis?.field_analysis && aiAnalysis.field_analysis.length > 0) {
+        // Fallback: Create fields directly from analysis if no mappings
+        try {
+          console.log('Debug: Creating fields from analysis, count:', aiAnalysis.field_analysis.length);
+          await processFieldMappings(structureId, aiAnalysis.field_analysis);
+          showMessage(`Created ${aiAnalysis.field_analysis.length} field definitions from analysis!`, 'success');
+        } catch (fieldError) {
+          console.error('Error creating fields from analysis:', fieldError);
           showMessage('Structure created but field creation failed: ' + fieldError.message, 'warning');
         }
       }
@@ -394,7 +433,7 @@ const DesignSystemEnhanced = () => {
       console.log(`Debug: Creating field with data:`, fieldData);
       
       try {
-        const response = await api.post(`/api/design-enhanced/structures/${structureId}/fields`, fieldData);
+        const response = await api.post(`/api/dataset-structures/structures/${structureId}/fields`, fieldData);
         console.log(`Debug: Field ${i + 1} created successfully:`, response.data);
       } catch (error) {
         console.error(`Debug: Error creating field ${i + 1}:`, error);
@@ -483,7 +522,7 @@ const DesignSystemEnhanced = () => {
         sequence_order: mapping.sequence_order || i + 1
       };
       
-      await api.post(`/api/design-enhanced/structures/${structureId}/fields`, fieldData);
+                await api.post(`/api/dataset-structures/structures/${structureId}/fields`, fieldData);
     }
   };
 
@@ -502,7 +541,7 @@ const DesignSystemEnhanced = () => {
         description: newField.description
       };
       
-      const response = await api.post(`/api/design-enhanced/structures/${selectedStructure.structure_id}/fields`, fieldData);
+              const response = await api.post(`/api/dataset-structures/structures/${selectedStructure.structure_id}/fields`, fieldData);
       
       setFieldDialog(false);
       setNewField({ name: '', display_name: '', data_type: '', postgis_type: '', is_required: false, is_primary_key: false, default_value: '', constraints: '', description: '' });
@@ -530,7 +569,7 @@ const DesignSystemEnhanced = () => {
         postgis_enabled: true
       };
       
-      const response = await api.post('/api/design-enhanced/templates', templateData);
+      const response = await api.post('/api/dataset-structures/templates', templateData);
       
       // Reload templates to get the updated list
       const templatesResponse = await api.get('/api/design-enhanced/templates');
@@ -554,7 +593,7 @@ const DesignSystemEnhanced = () => {
         schema_name: 'public'
       };
       
-      const response = await api.post(`/api/design-enhanced/templates/${templateId}/generate`, generationData);
+              const response = await api.post(`/api/dataset-structures/templates/${templateId}/generate`, generationData);
       showMessage('Table generated successfully', 'success');
     } catch (error) {
       showMessage('Error generating table: ' + error.message, 'error');
@@ -652,6 +691,72 @@ const DesignSystemEnhanced = () => {
       default: return 'default';
     }
   };
+
+  const renderDatasetTypes = () => (
+    <div>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h5">
+          Dataset Types
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setStructureDialog(true)}
+        >
+          Create Dataset Type
+        </Button>
+      </Box>
+
+      <Grid container spacing={3}>
+        {datasetTypes.map((type) => (
+          <Grid item xs={12} md={6} lg={4} key={type.type_id}>
+            <Card>
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                  <Typography variant="h6" gutterBottom>
+                    {type.display_name}
+                  </Typography>
+                  <Chip 
+                    label={type.category} 
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  {type.description}
+                </Typography>
+                <Typography variant="caption" display="block">
+                  Type: {type.type_name} | Governing Body: {type.governing_body}
+                </Typography>
+                <Typography variant="caption" display="block">
+                  Required Fields: {type.required_fields?.length || 0} | Optional Fields: {type.optional_fields?.length || 0}
+                </Typography>
+                <Typography variant="caption" display="block">
+                  Created: {new Date(type.created_at).toLocaleDateString()}
+                </Typography>
+                <Box mt={2} display="flex" justifyContent="space-between" alignItems="center">
+                  <Button
+                    size="small"
+                    startIcon={<ViewIcon />}
+                    onClick={() => setSelectedType(type)}
+                  >
+                    View Details
+                  </Button>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => handleDeleteType(type)}
+                  >
+                    <DeleteOutlineIcon />
+                  </IconButton>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+    </div>
+  );
 
   const renderDatasetStructures = () => (
     <div className="space-y-6">
@@ -826,15 +931,17 @@ const DesignSystemEnhanced = () => {
     <Container maxWidth="xl">
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={handleTabChange}>
+          <Tab label="Dataset Types" icon={<DataIcon />} />
           <Tab label="Dataset Structures" icon={<StorageIcon />} />
           <Tab label="Table Templates" icon={<SchemaIcon />} />
           <Tab label="Recent Uploads" icon={<CloudUploadIcon />} />
         </Tabs>
       </Box>
 
-      {activeTab === 0 && renderDatasetStructures()}
-      {activeTab === 1 && renderTableTemplates()}
-      {activeTab === 2 && renderRecentUploads()}
+      {activeTab === 0 && renderDatasetTypes()}
+      {activeTab === 1 && renderDatasetStructures()}
+      {activeTab === 2 && renderTableTemplates()}
+      {activeTab === 3 && renderRecentUploads()}
 
       {/* Create Structure Dialog */}
       <Dialog 
@@ -871,77 +978,176 @@ const DesignSystemEnhanced = () => {
                   Upload a sample file to automatically detect format, structure, data standards, preview the data, and configure field mappings
                 </Typography>
                 
-                {/* File Analysis Section */}
-                <FileAnalysisSection
-                  onAnalysisComplete={(analysisData) => {
-                    setAiAnalysis(analysisData);
-                    autoPopulateFromAnalysis(analysisData);
-                    
-                    // Automatically generate field mappings from AI analysis
-                    if (analysisData.field_analysis && analysisData.field_analysis.length > 0) {
-                      const processedMappings = analysisData.field_analysis.map((field, index) => {
-                        // Map field types to valid database types (same logic as in FieldAnalysisSection)
-                        let selectedType = 'text';
-                        if (field.type === 'empty') {
-                          selectedType = 'text';
-                        } else if (field.type) {
-                          switch (field.type) {
-                            case 'postcode':
-                            case 'uprn':
-                            case 'usrn':
-                            case 'coordinate':
-                            case 'longitude':
-                            case 'latitude':
-                              selectedType = 'text';
-                              break;
-                            case 'integer':
-                            case 'number':
-                              selectedType = 'integer';
-                              break;
-                            case 'decimal':
-                            case 'float':
-                            case 'numeric':
-                              selectedType = 'decimal';
-                              break;
-                            case 'date':
-                              selectedType = 'date';
-                              break;
-                            case 'timestamp':
-                              selectedType = 'timestamp';
-                              break;
-                            case 'boolean':
-                              selectedType = 'boolean';
-                              break;
-                            case 'geometry':
-                              selectedType = 'geometry';
-                              break;
-                            case 'geography':
-                              selectedType = 'geography';
-                              break;
-                            default:
-                              selectedType = 'text';
-                          }
-                        }
-
-                        return {
-                          source_field: field.field_name || `field_${index + 1}`,
-                          staging_field: field.field_name || `field_${index + 1}`,
-                          data_type: selectedType,
-                          postgis_type: null,
-                          is_required: false,
-                          is_primary_key: index === 0,
-                          default_value: '',
-                          constraints: '',
-                          description: field.field_name || `Field ${index + 1}`
-                        };
-                      });
-                      setGeneratedMappings({ field_mappings: processedMappings });
+                <Box sx={{ mb: 2 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={useClientSideAnalysis}
+                        onChange={(e) => setUseClientSideAnalysis(e.target.checked)}
+                      />
                     }
-                  }}
-                  onMappingsGenerated={(mappingsData) => {
-                    setGeneratedMappings(mappingsData);
-                  }}
-                />
+                    label={
+                      <Box>
+                        <Typography variant="body2">
+                          {useClientSideAnalysis ? 'Client-Side Analysis' : 'Server-Side Analysis'}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          {useClientSideAnalysis 
+                            ? 'Fast local processing - no server timeout' 
+                            : 'Advanced AI analysis with data standards detection'
+                          }
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Box>
+                
+                {/* File Analysis Section */}
+                {useClientSideAnalysis ? (
+                  <ClientSideFileAnalysis
+                    onAnalysisComplete={(analysisData) => {
+                      setAiAnalysis(analysisData);
+                      autoPopulateFromAnalysis(analysisData);
+                      
+                      // Automatically generate field mappings from analysis
+                      if (analysisData.field_analysis && analysisData.field_analysis.length > 0) {
+                        const processedMappings = analysisData.field_analysis.map((field, index) => {
+                          // Map field types to valid database types
+                          let selectedType = 'text';
+                          if (field.data_type) {
+                            switch (field.data_type) {
+                              case 'postcode':
+                              case 'uprn':
+                              case 'usrn':
+                              case 'coordinate':
+                              case 'longitude':
+                              case 'latitude':
+                                selectedType = 'text';
+                                break;
+                              case 'integer':
+                              case 'number':
+                                selectedType = 'integer';
+                                break;
+                              case 'decimal':
+                              case 'float':
+                              case 'numeric':
+                                selectedType = 'decimal';
+                                break;
+                              case 'date':
+                                selectedType = 'date';
+                                break;
+                              case 'timestamp':
+                                selectedType = 'timestamp';
+                                break;
+                              case 'boolean':
+                                selectedType = 'boolean';
+                                break;
+                              case 'geometry':
+                                selectedType = 'geometry';
+                                break;
+                              case 'geography':
+                                selectedType = 'geography';
+                                break;
+                              default:
+                                selectedType = 'text';
+                            }
+                          }
+
+                          return {
+                            source_field: field.field_name || `field_${index + 1}`,
+                            staging_field: field.field_name || `field_${index + 1}`,
+                            data_type: selectedType,
+                            postgis_type: field.postgis_type || null,
+                            is_required: field.is_required || false,
+                            is_primary_key: field.is_primary_key || index === 0,
+                            default_value: field.default_value || '',
+                            constraints: field.constraints || '',
+                            description: field.description || `Field ${index + 1}`
+                          };
+                        });
+                        setGeneratedMappings({ field_mappings: processedMappings });
+                      }
+                    }}
+                    onMappingsGenerated={(mappingsData) => {
+                      setGeneratedMappings(mappingsData);
+                    }}
+                    onSwitchToServer={(file) => {
+                      setUseClientSideAnalysis(false);
+                      showMessage(`Switched to server-side analysis for large file (${(file.size / (1024 * 1024)).toFixed(1)}MB)`, 'info');
+                    }}
+                  />
+                ) : (
+                  <FileAnalysisSection
+                    onAnalysisComplete={(analysisData) => {
+                      setAiAnalysis(analysisData);
+                      autoPopulateFromAnalysis(analysisData);
+                      
+                      // Automatically generate field mappings from AI analysis
+                      if (analysisData.field_analysis && analysisData.field_analysis.length > 0) {
+                        const processedMappings = analysisData.field_analysis.map((field, index) => {
+                          // Map field types to valid database types (same logic as in FieldAnalysisSection)
+                          let selectedType = 'text';
+                          if (field.type === 'empty') {
+                            selectedType = 'text';
+                          } else if (field.type) {
+                            switch (field.type) {
+                              case 'postcode':
+                              case 'uprn':
+                              case 'usrn':
+                              case 'coordinate':
+                              case 'longitude':
+                              case 'latitude':
+                                selectedType = 'text';
+                                break;
+                              case 'integer':
+                              case 'number':
+                                selectedType = 'integer';
+                                break;
+                              case 'decimal':
+                              case 'float':
+                              case 'numeric':
+                                selectedType = 'decimal';
+                                break;
+                              case 'date':
+                                selectedType = 'date';
+                                break;
+                              case 'timestamp':
+                                selectedType = 'timestamp';
+                                break;
+                              case 'boolean':
+                                selectedType = 'boolean';
+                                break;
+                              case 'geometry':
+                                selectedType = 'geometry';
+                                break;
+                              case 'geography':
+                                selectedType = 'geography';
+                                break;
+                              default:
+                                selectedType = 'text';
+                            }
+                          }
+
+                          return {
+                            source_field: field.field_name || `field_${index + 1}`,
+                            staging_field: field.field_name || `field_${index + 1}`,
+                            data_type: selectedType,
+                            postgis_type: null,
+                            is_required: false,
+                            is_primary_key: index === 0,
+                            default_value: '',
+                            constraints: '',
+                            description: field.field_name || `Field ${index + 1}`
+                          };
+                        });
+                        setGeneratedMappings({ field_mappings: processedMappings });
+                      }
+                    }}
+                    onMappingsGenerated={(mappingsData) => {
+                      setGeneratedMappings(mappingsData);
+                    }}
+                  />
+                )}
                 
                 {/* Data Preview Section */}
                 {aiAnalysis && (
@@ -1525,6 +1731,150 @@ const DesignSystemEnhanced = () => {
          </DialogActions>
        </Dialog>
 
+       {/* Dataset Type Details Dialog */}
+       <Dialog open={!!selectedType} onClose={() => setSelectedType(null)} maxWidth="md" fullWidth>
+         <DialogTitle>
+           <Box display="flex" alignItems="center" justifyContent="space-between">
+             <Typography variant="h6">
+               <DataIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+               Dataset Type: {selectedType?.display_name}
+             </Typography>
+             <Chip 
+               label={selectedType?.category || 'N/A'} 
+               color="primary"
+               size="small"
+             />
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Grid container spacing={3}>
+             <Grid item xs={12}>
+               <Typography variant="body2" color="textSecondary" gutterBottom>
+                 {selectedType?.description}
+               </Typography>
+             </Grid>
+             
+             <Grid item xs={12} md={6}>
+               <Typography variant="subtitle2" gutterBottom>Type Information</Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Type Name:</strong> {selectedType?.type_name}
+               </Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Category:</strong> {selectedType?.category}
+               </Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Governing Body:</strong> {selectedType?.governing_body || 'N/A'}
+               </Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Status:</strong> 
+                 <Chip 
+                   label={selectedType?.is_active ? 'Active' : 'Inactive'} 
+                   size="small" 
+                   color={selectedType?.is_active ? 'success' : 'default'}
+                   sx={{ ml: 1 }}
+                 />
+               </Typography>
+             </Grid>
+             
+             <Grid item xs={12} md={6}>
+               <Typography variant="subtitle2" gutterBottom>Field Requirements</Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Required Fields:</strong> {selectedType?.required_fields?.length || 0}
+               </Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Optional Fields:</strong> {selectedType?.optional_fields?.length || 0}
+               </Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Validation Rules:</strong> {selectedType?.validation_rules?.length || 0}
+               </Typography>
+               <Typography variant="body2" gutterBottom>
+                 <strong>Data Standards:</strong> {selectedType?.data_standards?.length || 0}
+               </Typography>
+             </Grid>
+             
+             {selectedType?.required_fields && selectedType.required_fields.length > 0 && (
+               <Grid item xs={12}>
+                 <Typography variant="subtitle2" gutterBottom>Required Fields</Typography>
+                 <TableContainer component={Paper} variant="outlined">
+                   <Table size="small">
+                     <TableHead>
+                       <TableRow>
+                         <TableCell>Field Name</TableCell>
+                         <TableCell>Data Type</TableCell>
+                         <TableCell>Description</TableCell>
+                       </TableRow>
+                     </TableHead>
+                     <TableBody>
+                       {selectedType.required_fields.map((field, index) => (
+                         <TableRow key={index}>
+                           <TableCell>{field.name || field}</TableCell>
+                           <TableCell>{field.data_type || 'text'}</TableCell>
+                           <TableCell>{field.description || '-'}</TableCell>
+                         </TableRow>
+                       ))}
+                     </TableBody>
+                   </Table>
+                 </TableContainer>
+               </Grid>
+             )}
+             
+             {selectedType?.optional_fields && selectedType.optional_fields.length > 0 && (
+               <Grid item xs={12}>
+                 <Typography variant="subtitle2" gutterBottom>Optional Fields</Typography>
+                 <TableContainer component={Paper} variant="outlined">
+                   <Table size="small">
+                     <TableHead>
+                       <TableRow>
+                         <TableCell>Field Name</TableCell>
+                         <TableCell>Data Type</TableCell>
+                         <TableCell>Description</TableCell>
+                       </TableRow>
+                     </TableHead>
+                     <TableBody>
+                       {selectedType.optional_fields.map((field, index) => (
+                         <TableRow key={index}>
+                           <TableCell>{field.name || field}</TableCell>
+                           <TableCell>{field.data_type || 'text'}</TableCell>
+                           <TableCell>{field.description || '-'}</TableCell>
+                         </TableRow>
+                       ))}
+                     </TableBody>
+                   </Table>
+                 </TableContainer>
+               </Grid>
+             )}
+             
+             {selectedType?.data_standards && selectedType.data_standards.length > 0 && (
+               <Grid item xs={12}>
+                 <Typography variant="subtitle2" gutterBottom>Data Standards</Typography>
+                 <Box display="flex" flexWrap="wrap" gap={1}>
+                   {selectedType.data_standards.map((standard, index) => (
+                     <Chip 
+                       key={index}
+                       label={standard.name || standard} 
+                       size="small" 
+                       color="secondary" 
+                       variant="outlined"
+                     />
+                   ))}
+                 </Box>
+               </Grid>
+             )}
+             
+             <Grid item xs={12}>
+               <Typography variant="caption" color="textSecondary">
+                 Created by: {selectedType?.created_by} | 
+                 Created: {selectedType?.created_at ? new Date(selectedType.created_at).toLocaleDateString() : 'N/A'} |
+                 Updated: {selectedType?.updated_at ? new Date(selectedType.updated_at).toLocaleDateString() : 'N/A'}
+               </Typography>
+             </Grid>
+           </Grid>
+         </DialogContent>
+         <DialogActions>
+           <Button onClick={() => setSelectedType(null)}>Close</Button>
+         </DialogActions>
+       </Dialog>
+
        {/* Delete Confirmation Dialog */}
        <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)} maxWidth="sm" fullWidth>
          <DialogTitle>
@@ -1581,4 +1931,4 @@ const DesignSystemEnhanced = () => {
   );
 };
 
-export default DesignSystemEnhanced; 
+export default DatasetStructures; 

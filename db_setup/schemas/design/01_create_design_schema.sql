@@ -73,7 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON design.audit_logs(timesta
 
 -- Sample data for common table types
 INSERT INTO design.table_designs (
-    design_id, design_name, table_name, description, columns, table_type, category
+    design_id, design_name, table_name, description, columns, table_type, category, created_by
 ) VALUES 
 -- Address data
 (
@@ -92,7 +92,8 @@ INSERT INTO design.table_designs (
         {"name": "county", "type": "text", "description": "County name", "is_required": false}
     ]'::jsonb,
     'address',
-    'government'
+    'government',
+    'system'
 ),
 -- Property data
 (
@@ -109,7 +110,8 @@ INSERT INTO design.table_designs (
         {"name": "local_authority", "type": "text", "description": "Local authority", "is_required": false}
     ]'::jsonb,
     'property',
-    'business'
+    'business',
+    'system'
 ),
 -- Postcode data
 (
@@ -127,13 +129,14 @@ INSERT INTO design.table_designs (
         {"name": "county", "type": "text", "description": "County name", "is_required": false}
     ]'::jsonb,
     'postcode',
-    'government'
+    'government',
+    'system'
 )
 ON CONFLICT (table_name) DO NOTHING;
 
 -- Sample mapping configurations
 INSERT INTO design.mapping_configs (
-    config_id, config_name, design_id, source_patterns, mapping_rules, priority
+    config_id, config_name, design_id, source_patterns, mapping_rules, priority, created_by
 ) 
 SELECT 
     gen_random_uuid(),
@@ -148,7 +151,8 @@ SELECT
         {"source_column": "latitude", "target_column": "latitude", "mapping_type": "direct"},
         {"source_column": "longitude", "target_column": "longitude", "mapping_type": "direct"}
     ]'::jsonb,
-    10
+    10,
+    'system'
 FROM design.table_designs td 
 WHERE td.table_name = 'os_open_names_staging'
 ON CONFLICT (config_name) DO NOTHING;

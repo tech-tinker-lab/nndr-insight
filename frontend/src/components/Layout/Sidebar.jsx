@@ -14,7 +14,7 @@ const navigation = [
   { name: 'Maps', href: '/maps', icon: Map },
   { name: 'Upload', href: '/upload', icon: Upload },
   { name: 'Design System', href: '/design-system', icon: Palette },
-  { name: 'Design System Enhanced', href: '/design-system-enhanced', icon: Sparkles },
+  { name: 'Dataset Structures', href: '/dataset-structures', icon: Sparkles },
   { name: 'Dataset Pipeline', href: '/dataset-pipeline', icon: GitBranch },
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Staged Data', href: '/admin', icon: Shield },

@@ -1,5 +1,6 @@
--- Dataset Structures Schema for Data Type and Structure Management
--- Supports dataset type definitions, structure capture from upload sessions, and intermediate/target storage structures
+-- Design Enhanced Schema - Unified Schema File
+-- This file drops and recreates the design_enhanced schema with all its objects
+-- Combines design/03_create_enhanced_design_system.sql and design/04_create_missing_tables.sql
 
 -- Drop existing schema if it exists (for clean recreation)
 DROP SCHEMA IF EXISTS design_enhanced CASCADE;
@@ -9,6 +10,10 @@ CREATE SCHEMA design_enhanced;
 
 -- Enable PostGIS extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- =============================================================================
+-- DATASET STRUCTURES
+-- =============================================================================
 
 -- Dataset Structure Definition Table
 CREATE TABLE IF NOT EXISTS design_enhanced.dataset_structures (
@@ -31,6 +36,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_structures (
     is_active BOOLEAN DEFAULT true,
     tags JSONB DEFAULT '[]',
     metadata JSONB DEFAULT '{}',
+    sector_code VARCHAR(100),
+    field_definitions JSONB DEFAULT '[]',
+    validation_rules JSONB DEFAULT '[]',
+    sample_file_info JSONB DEFAULT '{}',
 
     -- Constraints
     CONSTRAINT valid_source_type CHECK (source_type IN ('file', 'api', 'database', 'stream')),
@@ -38,6 +47,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_structures (
     CONSTRAINT valid_ingestion_pattern CHECK (ingestion_pattern IN ('standard', 'batch', 'realtime', 'scheduled')),
     CONSTRAINT valid_target_schema_type CHECK (target_schema_type IN ('staging', 'intermediate', 'master', 'archive'))
 );
+
+-- =============================================================================
+-- FIELD DEFINITIONS
+-- =============================================================================
 
 -- Field Definition Table with PostGIS Support
 CREATE TABLE IF NOT EXISTS design_enhanced.field_definitions (
@@ -70,6 +83,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.field_definitions (
     CONSTRAINT unique_field_sequence UNIQUE (structure_id, sequence_order)
 );
 
+-- =============================================================================
+-- TABLE TEMPLATES
+-- =============================================================================
+
 -- Table Generation Templates
 CREATE TABLE IF NOT EXISTS design_enhanced.table_templates (
     template_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -93,6 +110,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.table_templates (
     CONSTRAINT valid_template_type CHECK (template_type IN ('staging', 'master', 'intermediate', 'archive'))
 );
 
+-- =============================================================================
+-- GENERATED TABLES
+-- =============================================================================
+
 -- Generated Tables Registry
 CREATE TABLE IF NOT EXISTS design_enhanced.generated_tables (
     table_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -113,6 +134,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.generated_tables (
     CONSTRAINT valid_status CHECK (status IN ('created', 'deployed', 'active', 'inactive', 'archived'))
 );
 
+-- =============================================================================
+-- FIELD MAPPINGS
+-- =============================================================================
+
 -- Field Mapping Configuration
 CREATE TABLE IF NOT EXISTS design_enhanced.field_mappings (
     mapping_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -131,6 +156,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.field_mappings (
     -- Constraints
     CONSTRAINT valid_mapping_type CHECK (mapping_type IN ('direct', 'transformation', 'calculation', 'lookup'))
 );
+
+-- =============================================================================
+-- DATASET UPLOADS
+-- =============================================================================
 
 -- Dataset Upload and Processing
 CREATE TABLE IF NOT EXISTS design_enhanced.dataset_uploads (
@@ -158,6 +187,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_uploads (
     CONSTRAINT valid_processing_status CHECK (processing_status IN ('uploaded', 'mapping', 'validating', 'processing', 'completed', 'failed'))
 );
 
+-- =============================================================================
+-- DATASET TYPES
+-- =============================================================================
+
 -- Dataset Type Definitions
 CREATE TABLE IF NOT EXISTS design_enhanced.dataset_types (
     type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -180,6 +213,10 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_types (
     CONSTRAINT valid_category CHECK (category IN ('government', 'business', 'financial', 'property', 'address', 'postcode', 'boundary', 'economic', 'demographic', 'environmental', 'transport', 'health', 'education', 'other'))
 );
 
+-- =============================================================================
+-- REVIEW WORKFLOW
+-- =============================================================================
+
 -- Review and Verification Workflow
 CREATE TABLE IF NOT EXISTS design_enhanced.review_workflow (
     review_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -198,46 +235,171 @@ CREATE TABLE IF NOT EXISTS design_enhanced.review_workflow (
     CONSTRAINT valid_review_status CHECK (review_status IN ('pending', 'approved', 'rejected', 'needs_changes'))
 );
 
--- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_dataset_structures_status ON design_enhanced.dataset_structures(status);
+-- =============================================================================
+-- DATA STANDARDS
+-- =============================================================================
+
+-- Data Standards Table
+CREATE TABLE IF NOT EXISTS design_enhanced.data_standards (
+    standard_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    standard_code VARCHAR(100) NOT NULL UNIQUE,
+    standard_name VARCHAR(255) NOT NULL,
+    standard_type VARCHAR(100) NOT NULL, -- ISO, UK_Standard, UK_Government, EU_Directive, Sector_Specific, Quality_Standard, Open_Data
+    governing_body VARCHAR(255),
+    description TEXT,
+    compliance_level VARCHAR(50), -- mandatory, recommended, optional
+    version VARCHAR(50),
+    effective_date DATE,
+    expiry_date DATE,
+    website_url TEXT,
+    contact_info JSONB DEFAULT '{}',
+    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- =============================================================================
+-- SECTORS
+-- =============================================================================
+
+-- Sectors Table
+CREATE TABLE IF NOT EXISTS design_enhanced.sectors (
+    sector_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sector_code VARCHAR(100) NOT NULL UNIQUE,
+    sector_name VARCHAR(255) NOT NULL,
+    sector_category VARCHAR(100), -- government, business, financial, property, etc.
+    parent_sector_code VARCHAR(100) REFERENCES design_enhanced.sectors(sector_code),
+    description TEXT,
+    governing_bodies JSONB DEFAULT '[]',
+    data_standards JSONB DEFAULT '[]',
+    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- =============================================================================
+-- GOVERNING BODIES
+-- =============================================================================
+
+-- Governing Bodies Table
+CREATE TABLE IF NOT EXISTS design_enhanced.governing_bodies (
+    body_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    body_code VARCHAR(100) NOT NULL UNIQUE,
+    body_name VARCHAR(255) NOT NULL,
+    body_type VARCHAR(100) NOT NULL, -- Central_Government, Local_Government, Agency, Regulator, etc.
+    parent_body VARCHAR(100) REFERENCES design_enhanced.governing_bodies(body_code),
+    description TEXT,
+    data_standards JSONB DEFAULT '[]',
+    contact_info JSONB DEFAULT '{}',
+    website_url TEXT,
+    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- =============================================================================
+-- SAMPLE DATASETS
+-- =============================================================================
+
+-- Sample Datasets Table
+CREATE TABLE IF NOT EXISTS design_enhanced.sample_datasets (
+    sample_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    dataset_name VARCHAR(255) NOT NULL,
+    dataset_type VARCHAR(100) NOT NULL,
+    source_type VARCHAR(50) DEFAULT 'file',
+    governing_body VARCHAR(255),
+    data_standards JSONB DEFAULT '[]',
+    sector_code VARCHAR(100),
+    description TEXT,
+    field_definitions JSONB DEFAULT '[]',
+    validation_rules JSONB DEFAULT '[]',
+    sample_file_info JSONB DEFAULT '{}',
+    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- =============================================================================
+-- INDEXES FOR PERFORMANCE
+-- =============================================================================
+
+-- Dataset structures indexes
+CREATE INDEX IF NOT EXISTS idx_dataset_structures_type ON design_enhanced.dataset_structures(dataset_type);
 CREATE INDEX IF NOT EXISTS idx_dataset_structures_source_type ON design_enhanced.dataset_structures(source_type);
+CREATE INDEX IF NOT EXISTS idx_dataset_structures_status ON design_enhanced.dataset_structures(status);
 CREATE INDEX IF NOT EXISTS idx_dataset_structures_created_by ON design_enhanced.dataset_structures(created_by);
 
+-- Field definitions indexes
 CREATE INDEX IF NOT EXISTS idx_field_definitions_structure ON design_enhanced.field_definitions(structure_id);
 CREATE INDEX IF NOT EXISTS idx_field_definitions_type ON design_enhanced.field_definitions(field_type);
 CREATE INDEX IF NOT EXISTS idx_field_definitions_postgis ON design_enhanced.field_definitions(postgis_type);
 
+-- Table templates indexes
 CREATE INDEX IF NOT EXISTS idx_table_templates_type ON design_enhanced.table_templates(template_type);
 CREATE INDEX IF NOT EXISTS idx_table_templates_structure ON design_enhanced.table_templates(structure_id);
 
+-- Generated tables indexes
 CREATE INDEX IF NOT EXISTS idx_generated_tables_name ON design_enhanced.generated_tables(table_name);
 CREATE INDEX IF NOT EXISTS idx_generated_tables_type ON design_enhanced.generated_tables(table_type);
 CREATE INDEX IF NOT EXISTS idx_generated_tables_status ON design_enhanced.generated_tables(status);
 
+-- Field mappings indexes
 CREATE INDEX IF NOT EXISTS idx_field_mappings_structure ON design_enhanced.field_mappings(structure_id);
 CREATE INDEX IF NOT EXISTS idx_field_mappings_type ON design_enhanced.field_mappings(mapping_type);
 
+-- Dataset uploads indexes
 CREATE INDEX IF NOT EXISTS idx_dataset_uploads_structure ON design_enhanced.dataset_uploads(structure_id);
 CREATE INDEX IF NOT EXISTS idx_dataset_uploads_status ON design_enhanced.dataset_uploads(processing_status);
 CREATE INDEX IF NOT EXISTS idx_dataset_uploads_uploaded_by ON design_enhanced.dataset_uploads(uploaded_by);
 
+-- Review workflow indexes
 CREATE INDEX IF NOT EXISTS idx_review_workflow_upload ON design_enhanced.review_workflow(upload_id);
 CREATE INDEX IF NOT EXISTS idx_review_workflow_type ON design_enhanced.review_workflow(review_type);
 CREATE INDEX IF NOT EXISTS idx_review_workflow_status ON design_enhanced.review_workflow(review_status);
 
+-- Dataset types indexes
 CREATE INDEX IF NOT EXISTS idx_dataset_types_category ON design_enhanced.dataset_types(category);
 CREATE INDEX IF NOT EXISTS idx_dataset_types_governing_body ON design_enhanced.dataset_types(governing_body);
 CREATE INDEX IF NOT EXISTS idx_dataset_types_active ON design_enhanced.dataset_types(is_active);
 
--- Create triggers for updated_at timestamps
+-- Data standards indexes
+CREATE INDEX IF NOT EXISTS idx_data_standards_code ON design_enhanced.data_standards(standard_code);
+CREATE INDEX IF NOT EXISTS idx_data_standards_type ON design_enhanced.data_standards(standard_type);
+CREATE INDEX IF NOT EXISTS idx_data_standards_active ON design_enhanced.data_standards(is_active);
+
+-- Sectors indexes
+CREATE INDEX IF NOT EXISTS idx_sectors_code ON design_enhanced.sectors(sector_code);
+CREATE INDEX IF NOT EXISTS idx_sectors_category ON design_enhanced.sectors(sector_category);
+CREATE INDEX IF NOT EXISTS idx_sectors_active ON design_enhanced.sectors(is_active);
+
+-- Governing bodies indexes
+CREATE INDEX IF NOT EXISTS idx_governing_bodies_code ON design_enhanced.governing_bodies(body_code);
+CREATE INDEX IF NOT EXISTS idx_governing_bodies_type ON design_enhanced.governing_bodies(body_type);
+CREATE INDEX IF NOT EXISTS idx_governing_bodies_active ON design_enhanced.governing_bodies(is_active);
+
+-- Sample datasets indexes
+CREATE INDEX IF NOT EXISTS idx_sample_datasets_name ON design_enhanced.sample_datasets(dataset_name);
+CREATE INDEX IF NOT EXISTS idx_sample_datasets_type ON design_enhanced.sample_datasets(dataset_type);
+CREATE INDEX IF NOT EXISTS idx_sample_datasets_active ON design_enhanced.sample_datasets(is_active);
+
+-- =============================================================================
+-- TRIGGERS FOR UPDATED_AT TIMESTAMPS
+-- =============================================================================
+
+-- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION design_enhanced.update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
+-- Create triggers for updated_at
 CREATE TRIGGER update_dataset_structures_updated_at 
     BEFORE UPDATE ON design_enhanced.dataset_structures 
     FOR EACH ROW EXECUTE FUNCTION design_enhanced.update_updated_at_column();
@@ -262,30 +424,52 @@ CREATE TRIGGER update_dataset_types_updated_at
     BEFORE UPDATE ON design_enhanced.dataset_types 
     FOR EACH ROW EXECUTE FUNCTION design_enhanced.update_updated_at_column();
 
+-- Create triggers for the new tables
+CREATE TRIGGER trigger_update_data_standards_timestamp
+    BEFORE UPDATE ON design_enhanced.data_standards
+    FOR EACH ROW EXECUTE FUNCTION design_enhanced.update_updated_at_column();
+
+CREATE TRIGGER trigger_update_sectors_timestamp
+    BEFORE UPDATE ON design_enhanced.sectors
+    FOR EACH ROW EXECUTE FUNCTION design_enhanced.update_updated_at_column();
+
+CREATE TRIGGER trigger_update_governing_bodies_timestamp
+    BEFORE UPDATE ON design_enhanced.governing_bodies
+    FOR EACH ROW EXECUTE FUNCTION design_enhanced.update_updated_at_column();
+
+CREATE TRIGGER trigger_update_sample_datasets_timestamp
+    BEFORE UPDATE ON design_enhanced.sample_datasets
+    FOR EACH ROW EXECUTE FUNCTION design_enhanced.update_updated_at_column();
+
+-- =============================================================================
+-- SAMPLE DATA
+-- =============================================================================
+
 -- Insert sample dataset types
 INSERT INTO design_enhanced.dataset_types (
-    type_name, display_name, description, category, governing_body, data_standards, required_fields, optional_fields, created_by
+    type_name, display_name, description, category, governing_body, 
+    data_standards, required_fields, optional_fields, created_by
 ) VALUES 
-(
-    'property',
-    'Property Data',
-    'Property information including addresses, valuations, and characteristics',
-    'property',
-    'Valuation Office Agency',
-    '["VOA_NNDR", "BS7666"]'::jsonb,
-    '["uprn", "property_address", "rateable_value"]'::jsonb,
-    '["property_type", "occupancy_status", "local_authority"]'::jsonb,
-    'admin'
-),
 (
     'address',
     'Address Data',
-    'Address and location referencing data',
+    'Address and location data with coordinates',
     'address',
     'Ordnance Survey',
     '["BS7666", "OS_Standards"]'::jsonb,
-    '["name", "local_type", "easting", "northing"]'::jsonb,
-    '["latitude", "longitude", "district", "county"]'::jsonb,
+    '["address", "postcode", "coordinates"]'::jsonb,
+    '["building_name", "street_name", "locality", "town", "county"]'::jsonb,
+    'admin'
+),
+(
+    'property',
+    'Property Data',
+    'Property information and valuations',
+    'property',
+    'Valuation Office Agency',
+    '["VOA_Standards", "NNDR_Standard"]'::jsonb,
+    '["property_reference", "address", "rateable_value"]'::jsonb,
+    '["property_type", "occupancy_status", "floor_area"]'::jsonb,
     'admin'
 ),
 (
@@ -354,203 +538,68 @@ INSERT INTO design_enhanced.dataset_structures (
     'active'
 ),
 (
-    'CodePoint Open',
-    'Royal Mail CodePoint Open postcode data with coordinates',
+    'ONS Postcode Directory',
+    'ONS Postcode Directory with geographic and administrative data',
     'postcode',
     'file',
     '["csv"]'::jsonb,
-    'Royal Mail',
-    '["CodePoint Standard"]'::jsonb,
-    'Address Management Team',
-    'Data Quality Team',
+    'Office for National Statistics',
+    '["ONS Standards", "BS7666"]'::jsonb,
+    'Geographic Data Team',
+    'Data Standards Team',
     'admin',
     'active'
 ) ON CONFLICT (dataset_name) DO NOTHING;
 
--- Insert sample field definitions for OS Open Names
-INSERT INTO design_enhanced.field_definitions (
-    structure_id, field_name, field_type, postgis_type, srid, is_required, 
-    is_primary_key, description, sequence_order, created_by
-)
-SELECT 
-    ds.structure_id,
-    'name',
-    'text',
-    NULL,
-    4326,
-    true,
-    false,
-    'Place name',
-    1,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    ds.structure_id,
-    'local_type',
-    'text',
-    NULL,
-    4326,
-    true,
-    false,
-    'Type of place',
-    2,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    ds.structure_id,
-    'easting',
-    'integer',
-    NULL,
-    4326,
-    true,
-    false,
-    'OS Grid Easting',
-    3,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    ds.structure_id,
-    'northing',
-    'integer',
-    NULL,
-    4326,
-    true,
-    false,
-    'OS Grid Northing',
-    4,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    ds.structure_id,
-    'geometry',
-    'geometry',
-    'POINT',
-    27700,
-    false,
-    false,
-    'Point geometry in OSGB projection',
-    5,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    ds.structure_id,
-    'latitude',
-    'numeric',
-    NULL,
-    4326,
-    false,
-    false,
-    'Latitude in WGS84',
-    6,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    ds.structure_id,
-    'longitude',
-    'numeric',
-    NULL,
-    4326,
-    false,
-    false,
-    'Longitude in WGS84',
-    7,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-ON CONFLICT (structure_id, sequence_order) DO NOTHING;
+-- =============================================================================
+-- VIEWS FOR EASY QUERYING
+-- =============================================================================
 
--- Insert sample table templates
-INSERT INTO design_enhanced.table_templates (
-    template_name, template_type, structure_id, table_name_pattern, 
-    schema_name, include_audit_fields, include_source_tracking, 
-    include_processing_metadata, postgis_enabled, created_by
-)
-SELECT 
-    'OS Open Names Staging',
-    'staging',
-    ds.structure_id,
-    '{dataset_name}_staging',
-    'public',
-    true,
-    true,
-    true,
-    true,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-UNION ALL
-SELECT 
-    'OS Open Names Master',
-    'master',
-    ds.structure_id,
-    '{dataset_name}',
-    'public',
-    true,
-    false,
-    false,
-    true,
-    'admin'
-FROM design_enhanced.dataset_structures ds WHERE ds.dataset_name = 'OS Open Names'
-ON CONFLICT (template_name) DO NOTHING;
-
--- Create views for easier querying
+-- View for complete dataset structure overview
 CREATE OR REPLACE VIEW design_enhanced.dataset_structure_overview AS
-SELECT 
+SELECT
     ds.structure_id,
     ds.dataset_name,
-    ds.description,
-    ds.source_type,
+    ds.dataset_type,
     ds.governing_body,
-    ds.status as dataset_status,
-    COUNT(fd.field_id) as total_fields,
-    COUNT(CASE WHEN fd.postgis_type IS NOT NULL THEN 1 END) as postgis_fields,
-    COUNT(CASE WHEN fd.is_required = true THEN 1 END) as required_fields,
-    COUNT(gt.table_id) as generated_tables,
+    ds.status,
+    ds.is_active,
+    COUNT(fd.field_id) as field_count,
+    COUNT(gt.table_id) as generated_table_count,
     ds.created_at,
     ds.updated_at
 FROM design_enhanced.dataset_structures ds
 LEFT JOIN design_enhanced.field_definitions fd ON ds.structure_id = fd.structure_id
 LEFT JOIN design_enhanced.generated_tables gt ON ds.structure_id = gt.structure_id
-WHERE ds.is_active = true
-GROUP BY ds.structure_id, ds.dataset_name, ds.description, ds.source_type, 
-         ds.governing_body, ds.status, ds.created_at, ds.updated_at;
+GROUP BY ds.structure_id, ds.dataset_name, ds.dataset_type, ds.governing_body, ds.status, ds.is_active, ds.created_at, ds.updated_at;
 
+-- View for field mapping summary
 CREATE OR REPLACE VIEW design_enhanced.field_mapping_summary AS
-SELECT 
+SELECT
     ds.dataset_name,
-    fd.field_name,
-    fd.field_type,
-    fd.postgis_type,
-    fd.srid,
-    fd.is_required,
-    fd.is_primary_key,
-    fd.description,
-    fm.mapping_type,
     fm.source_field_name,
-    fm.target_field_name
-FROM design_enhanced.dataset_structures ds
-JOIN design_enhanced.field_definitions fd ON ds.structure_id = fd.structure_id
-LEFT JOIN design_enhanced.field_mappings fm ON ds.structure_id = fm.structure_id 
-    AND fd.field_name = fm.target_field_name
-WHERE ds.is_active = true
-ORDER BY ds.dataset_name, fd.sequence_order;
+    fm.target_field_name,
+    fm.mapping_type,
+    fm.is_required,
+    fm.created_at
+FROM design_enhanced.field_mappings fm
+JOIN design_enhanced.dataset_structures ds ON fm.structure_id = ds.structure_id
+ORDER BY ds.dataset_name, fm.source_field_name;
 
--- Grant permissions (commented out - role may not exist)
--- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA design_enhanced TO authenticated;
--- GRANT SELECT ON design_enhanced.dataset_structure_overview TO authenticated;
--- GRANT SELECT ON design_enhanced.field_mapping_summary TO authenticated;
+-- =============================================================================
+-- COMMENTS FOR DOCUMENTATION
+-- =============================================================================
 
--- Add comments for documentation
-COMMENT ON SCHEMA design_enhanced IS 'Dataset Structures schema for data type definitions, structure capture from upload sessions, and intermediate/target storage structures';
-COMMENT ON TABLE design_enhanced.dataset_types IS 'Dataset type definitions with categories, standards, and field requirements';
-COMMENT ON TABLE design_enhanced.dataset_structures IS 'Dataset structure definitions with metadata, governance information, and ingestion patterns';
-COMMENT ON TABLE design_enhanced.field_definitions IS 'Field definitions with PostGIS support and validation rules';
-COMMENT ON TABLE design_enhanced.table_templates IS 'Templates for generating staging, intermediate, master, and archive tables';
-COMMENT ON TABLE design_enhanced.generated_tables IS 'Registry of tables generated from templates with DDL scripts';
+COMMENT ON SCHEMA design_enhanced IS 'Enhanced design system for dataset structures and field definitions';
+COMMENT ON TABLE design_enhanced.dataset_structures IS 'Dataset structure definitions for AI-powered ingestion';
+COMMENT ON TABLE design_enhanced.field_definitions IS 'Field definitions with PostGIS support for dataset structures';
+COMMENT ON TABLE design_enhanced.table_templates IS 'Table generation templates for different schema types';
+COMMENT ON TABLE design_enhanced.generated_tables IS 'Registry of tables generated from templates';
 COMMENT ON TABLE design_enhanced.field_mappings IS 'Field mapping configurations for data transformation';
-COMMENT ON TABLE design_enhanced.dataset_uploads IS 'Upload tracking with field mapping and validation results';
-COMMENT ON TABLE design_enhanced.review_workflow IS 'Review and verification workflow for dataset approval'; 
+COMMENT ON TABLE design_enhanced.dataset_uploads IS 'Dataset upload and processing tracking';
+COMMENT ON TABLE design_enhanced.dataset_types IS 'Dataset type definitions for classification';
+COMMENT ON TABLE design_enhanced.review_workflow IS 'Review and verification workflow for datasets';
+COMMENT ON TABLE design_enhanced.data_standards IS 'Data standards and compliance rules for different types of datasets';
+COMMENT ON TABLE design_enhanced.sectors IS 'Sector definitions for classifying datasets and organizations';
+COMMENT ON TABLE design_enhanced.governing_bodies IS 'Governing bodies and organizations responsible for data standards';
+COMMENT ON TABLE design_enhanced.sample_datasets IS 'Sample datasets for AI training and pattern recognition'; 

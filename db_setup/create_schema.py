@@ -108,19 +108,23 @@ def main(recreate_db=False, sql_files=None):
         print(f"Missing .sql files: {missing}")
         return
     engine = sqlalchemy.create_engine(f"postgresql://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}")
-    with engine.begin() as conn:
-        print("Creating tables from SQL_FILES list...")
-        for sql_file in sql_files:
-            sql_path = os.path.join(SCHEMA_DIR, sql_file)
-            print(f"\n=== Executing {sql_file} ===")
-            try:
+    
+    # Execute each file in its own transaction
+    for sql_file in sql_files:
+        sql_path = os.path.join(SCHEMA_DIR, sql_file)
+        print(f"\n=== Executing {sql_file} ===")
+        try:
+            with engine.begin() as conn:
                 with open(sql_path, 'r', encoding='utf-8') as f:
                     sql = f.read()
                 conn.execute(text(sql))
-                print(f"Executed {sql_file} successfully.")
-            except Exception as e:
-                print(f"[ERROR] Failed to execute {sql_file}: {e}")
-        print("\nAll schema .sql files executed.")
+            print(f"Executed {sql_file} successfully.")
+        except Exception as e:
+            print(f"[ERROR] Failed to execute {sql_file}: {e}")
+            # Continue with next file instead of stopping
+            continue
+    
+    print("\nAll schema .sql files processed.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified Database Schema Creation Script (SQL File Runner)")
@@ -132,8 +136,8 @@ if __name__ == "__main__":
     if args.file:
         sql_files = get_sql_files_from_txt(args.file)
     else:
-        # Try to use full_schema.txt if it exists, otherwise fall back to hardcoded list
-        default_schema_file = os.path.join(SCHEMA_DIR, 'full_schema.txt')
+        # Try to use unified_schema.txt if it exists, otherwise fall back to hardcoded list
+        default_schema_file = os.path.join(SCHEMA_DIR, 'unified_schema.txt')
         if os.path.exists(default_schema_file):
             sql_files = get_sql_files_from_txt(default_schema_file)
         else:
