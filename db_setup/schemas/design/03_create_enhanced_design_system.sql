@@ -1,6 +1,17 @@
 -- Dataset Structures Schema for Data Type and Structure Management
 -- Supports dataset type definitions, structure capture from upload sessions, and intermediate/target storage structures
 
+-- Drop existing tables if they exist to ensure a clean slate
+-- (Add DROP TABLE IF EXISTS for each table created in this script, if any)
+DROP TABLE IF EXISTS design_enhanced.dataset_structures;
+DROP TABLE IF EXISTS design_enhanced.field_definitions;
+DROP TABLE IF EXISTS design_enhanced.table_templates;
+DROP TABLE IF EXISTS design_enhanced.generated_tables;
+DROP TABLE IF EXISTS design_enhanced.field_mappings;
+DROP TABLE IF EXISTS design_enhanced.dataset_uploads;
+DROP TABLE IF EXISTS design_enhanced.dataset_types;
+DROP TABLE IF EXISTS design_enhanced.review_workflow;
+
 -- Drop existing schema if it exists (for clean recreation)
 DROP SCHEMA IF EXISTS design_enhanced CASCADE;
 

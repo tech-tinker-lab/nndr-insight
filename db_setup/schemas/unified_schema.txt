@@ -1,38 +1,12 @@
-# Unified Schema Execution File
-# This file lists all SQL scripts in execution order for the complete database setup
-# No duplication - unified table/index structures with AI-powered dataset management
-
-# =============================================================================
-# 1. CORE EXTENSIONS AND FOUNDATIONS
-# =============================================================================
 00_enable_postgis.sql
-
-# =============================================================================
-# 2. UNIFIED SCHEMA CREATION (One File Per Schema)
-# =============================================================================
-# Each schema is dropped and recreated in its own file
-design_schema.sql
 design_enhanced_schema.sql
-staging_schema.sql
-reference_schema.sql
+design_schema.sql
+create_staging_schema.sql
+system/users.sql
 
-# =============================================================================
-# 3. SEEDING SCRIPTS (All moved to bottom)
-# =============================================================================
-# All seed data scripts are executed after all schemas are created
 seeding/01_data_standards_seed.sql
 seeding/02_sectors_seed.sql
 seeding/03_dataset_structures_seed.sql
 seeding/04_governing_bodies_seed.sql
 seeding/05_sample_datasets_seed.sql
-
-# =============================================================================
-# EXECUTION NOTES:
-# =============================================================================
-# - All schemas are unified and avoid duplication
-# - Design system provides AI-powered dataset management
-# - Staging system is unified for all data types
-# - Seeding provides operational data for immediate use
-# - No manual table creation needed - all handled by Dataset Structures
-# - AI analysis service automatically detects and maps new datasets
-# - JSONB configuration allows flexible schema evolution 
+system/users_seed.sql

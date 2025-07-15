@@ -11,28 +11,60 @@ CREATE SCHEMA design_enhanced;
 -- Enable PostGIS extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS postgis;
 
--- =============================================================================
--- DATASET STRUCTURES
--- =============================================================================
+-- Data Standards Table (matches seeding script)
+CREATE TABLE IF NOT EXISTS design_enhanced.data_standards (
+    standard_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    standard_code VARCHAR(100) NOT NULL UNIQUE,
+    standard_name VARCHAR(255) NOT NULL,
+    standard_type VARCHAR(100) NOT NULL, -- ISO, UK_Standard, UK_Government, EU_Directive, Sector_Specific, Quality_Standard, Open_Data
+    governing_body VARCHAR(255),
+    description TEXT,
+    compliance_level VARCHAR(50), -- mandatory, recommended, optional
+    version VARCHAR(50),
+    effective_date DATE,
+    expiry_date DATE,
+    website_url TEXT,
+    contact_info JSONB DEFAULT '{}',
+    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT true
+);
 
--- Dataset Structure Definition Table
+-- Data Standard Import Plans Table
+CREATE TABLE IF NOT EXISTS design_enhanced.data_standard_import_plans (
+    plan_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    plan_name VARCHAR(255) NOT NULL UNIQUE,
+    source_type VARCHAR(50) NOT NULL, -- file, url, api
+    source_path TEXT NOT NULL,        -- file path or URL
+    schedule VARCHAR(100),           -- cron or interval string
+    enabled BOOLEAN DEFAULT true,
+    last_run TIMESTAMP,
+    last_status VARCHAR(50),         -- success, failed, pending
+    last_message TEXT,
+    config JSONB DEFAULT '{}',       -- extra config (headers, auth, etc.)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Dataset Structure Definition Table (matches seeding script)
 CREATE TABLE IF NOT EXISTS design_enhanced.dataset_structures (
     structure_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dataset_name VARCHAR(255) NOT NULL UNIQUE,
     description TEXT,
-    dataset_type VARCHAR(100) NOT NULL, -- property, address, postcode, boundary, business, financial, etc.
-    source_type VARCHAR(50) DEFAULT 'file', -- file, api, database, stream
-    file_formats JSONB DEFAULT '[]', -- Supported file formats (CSV, JSON, XML, etc.)
-    governing_body VARCHAR(255), -- ONS, Ordinance Survey, etc.
-    data_standards JSONB DEFAULT '[]', -- SDMX, ISO 20022, etc.
+    dataset_type VARCHAR(100) NOT NULL,
+    source_type VARCHAR(50) DEFAULT 'file',
+    file_formats JSONB DEFAULT '[]',
+    governing_body VARCHAR(255),
+    data_standards JSONB DEFAULT '[]',
     business_owner VARCHAR(255),
     data_steward VARCHAR(255),
-    ingestion_pattern VARCHAR(100) DEFAULT 'standard', -- standard, batch, realtime, scheduled
-    target_schema_type VARCHAR(50) DEFAULT 'staging', -- staging, intermediate, master, archive
+    ingestion_pattern VARCHAR(100) DEFAULT 'standard',
+    target_schema_type VARCHAR(50) DEFAULT 'staging',
     created_by VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(50) DEFAULT 'draft', -- draft, active, inactive, archived
+    status VARCHAR(50) DEFAULT 'draft',
     is_active BOOLEAN DEFAULT true,
     tags JSONB DEFAULT '[]',
     metadata JSONB DEFAULT '{}',
@@ -40,17 +72,11 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_structures (
     field_definitions JSONB DEFAULT '[]',
     validation_rules JSONB DEFAULT '[]',
     sample_file_info JSONB DEFAULT '{}',
-
-    -- Constraints
     CONSTRAINT valid_source_type CHECK (source_type IN ('file', 'api', 'database', 'stream')),
     CONSTRAINT valid_status CHECK (status IN ('draft', 'active', 'inactive', 'archived')),
     CONSTRAINT valid_ingestion_pattern CHECK (ingestion_pattern IN ('standard', 'batch', 'realtime', 'scheduled')),
     CONSTRAINT valid_target_schema_type CHECK (target_schema_type IN ('staging', 'intermediate', 'master', 'archive'))
 );
-
--- =============================================================================
--- FIELD DEFINITIONS
--- =============================================================================
 
 -- Field Definition Table with PostGIS Support
 CREATE TABLE IF NOT EXISTS design_enhanced.field_definitions (
@@ -83,10 +109,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.field_definitions (
     CONSTRAINT unique_field_sequence UNIQUE (structure_id, sequence_order)
 );
 
--- =============================================================================
--- TABLE TEMPLATES
--- =============================================================================
-
 -- Table Generation Templates
 CREATE TABLE IF NOT EXISTS design_enhanced.table_templates (
     template_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -110,10 +132,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.table_templates (
     CONSTRAINT valid_template_type CHECK (template_type IN ('staging', 'master', 'intermediate', 'archive'))
 );
 
--- =============================================================================
--- GENERATED TABLES
--- =============================================================================
-
 -- Generated Tables Registry
 CREATE TABLE IF NOT EXISTS design_enhanced.generated_tables (
     table_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -134,10 +152,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.generated_tables (
     CONSTRAINT valid_status CHECK (status IN ('created', 'deployed', 'active', 'inactive', 'archived'))
 );
 
--- =============================================================================
--- FIELD MAPPINGS
--- =============================================================================
-
 -- Field Mapping Configuration
 CREATE TABLE IF NOT EXISTS design_enhanced.field_mappings (
     mapping_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,10 +170,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.field_mappings (
     -- Constraints
     CONSTRAINT valid_mapping_type CHECK (mapping_type IN ('direct', 'transformation', 'calculation', 'lookup'))
 );
-
--- =============================================================================
--- DATASET UPLOADS
--- =============================================================================
 
 -- Dataset Upload and Processing
 CREATE TABLE IF NOT EXISTS design_enhanced.dataset_uploads (
@@ -187,10 +197,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_uploads (
     CONSTRAINT valid_processing_status CHECK (processing_status IN ('uploaded', 'mapping', 'validating', 'processing', 'completed', 'failed'))
 );
 
--- =============================================================================
--- DATASET TYPES
--- =============================================================================
-
 -- Dataset Type Definitions
 CREATE TABLE IF NOT EXISTS design_enhanced.dataset_types (
     type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -213,9 +219,45 @@ CREATE TABLE IF NOT EXISTS design_enhanced.dataset_types (
     CONSTRAINT valid_category CHECK (category IN ('government', 'business', 'financial', 'property', 'address', 'postcode', 'boundary', 'economic', 'demographic', 'environmental', 'transport', 'health', 'education', 'other'))
 );
 
--- =============================================================================
--- REVIEW WORKFLOW
--- =============================================================================
+-- Dataset Type Versioning
+CREATE TABLE IF NOT EXISTS design_enhanced.dataset_type_versions (
+    version_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type_id UUID NOT NULL REFERENCES design_enhanced.dataset_types(type_id) ON DELETE CASCADE,
+    version_number VARCHAR(20) NOT NULL,
+    config JSONB NOT NULL,
+    changelog TEXT,
+    created_by VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    UNIQUE(type_id, version_number)
+);
+
+-- Data Standards and Versioning
+CREATE TABLE IF NOT EXISTS design_enhanced.data_standard_versions (
+    version_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    standard_id UUID NOT NULL REFERENCES design_enhanced.data_standards(standard_id) ON DELETE CASCADE,
+    version_number VARCHAR(20) NOT NULL,
+    config JSONB NOT NULL,
+    changelog TEXT,
+    created_by VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    UNIQUE(standard_id, version_number)
+);
+
+-- Entity Documentation (for dataset types and data standards, version-aware)
+CREATE TABLE IF NOT EXISTS design_enhanced.entity_docs (
+    doc_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type VARCHAR(50) NOT NULL, -- 'dataset_type' or 'data_standard'
+    entity_id UUID NOT NULL,          -- type_id or standard_id
+    version_id UUID,                  -- version_id from the relevant version table
+    doc_type VARCHAR(50),             -- e.g., 'markdown', 'link', 'pdf'
+    doc_title VARCHAR(255),
+    doc_content TEXT,                 -- markdown or plain text
+    doc_url TEXT,                     -- for external links
+    created_by VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Review and Verification Workflow
 CREATE TABLE IF NOT EXISTS design_enhanced.review_workflow (
@@ -235,34 +277,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.review_workflow (
     CONSTRAINT valid_review_status CHECK (review_status IN ('pending', 'approved', 'rejected', 'needs_changes'))
 );
 
--- =============================================================================
--- DATA STANDARDS
--- =============================================================================
-
--- Data Standards Table
-CREATE TABLE IF NOT EXISTS design_enhanced.data_standards (
-    standard_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    standard_code VARCHAR(100) NOT NULL UNIQUE,
-    standard_name VARCHAR(255) NOT NULL,
-    standard_type VARCHAR(100) NOT NULL, -- ISO, UK_Standard, UK_Government, EU_Directive, Sector_Specific, Quality_Standard, Open_Data
-    governing_body VARCHAR(255),
-    description TEXT,
-    compliance_level VARCHAR(50), -- mandatory, recommended, optional
-    version VARCHAR(50),
-    effective_date DATE,
-    expiry_date DATE,
-    website_url TEXT,
-    contact_info JSONB DEFAULT '{}',
-    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT true
-);
-
--- =============================================================================
--- SECTORS
--- =============================================================================
-
 -- Sectors Table
 CREATE TABLE IF NOT EXISTS design_enhanced.sectors (
     sector_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -278,10 +292,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.sectors (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT true
 );
-
--- =============================================================================
--- GOVERNING BODIES
--- =============================================================================
 
 -- Governing Bodies Table
 CREATE TABLE IF NOT EXISTS design_enhanced.governing_bodies (
@@ -299,10 +309,6 @@ CREATE TABLE IF NOT EXISTS design_enhanced.governing_bodies (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT true
 );
-
--- =============================================================================
--- SAMPLE DATASETS
--- =============================================================================
 
 -- Sample Datasets Table
 CREATE TABLE IF NOT EXISTS design_enhanced.sample_datasets (

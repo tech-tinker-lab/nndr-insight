@@ -16,7 +16,11 @@ import { AuthProvider } from './context/UserContext';
 import StagedData from './pages/StagedData';
 import MasterData from './pages/MasterData';
 import DatasetStructures from './pages/DesignSystemEnhanced';
-
+import DataStandardsRegistry from './components/DataStandardsRegistry';
+import DatasetCreationWizard from './pages/DatasetCreationWizard';
+import DatasetRegistry from './pages/DatasetRegistry';
+import NNDRForecasting from './pages/NNDRForecasting';
+import NNDRIndicators from './pages/NNDRIndicators';
 
 function App() {
   return (
@@ -47,8 +51,13 @@ function App() {
                         }
                       />
                       <Route path="/staged-data" element={<StagedData />} />
-                                            <Route path="/master" element={<MasterData />} />
-                                            <Route path="/dataset-structures" element={<DatasetStructures />} />
+                      <Route path="/master" element={<MasterData />} />
+                      <Route path="/dataset-structures" element={<DatasetStructures />} />
+                      <Route path="/data-standards" element={<DataStandardsRegistry />} />
+                      <Route path="/datasets/new" element={<DatasetCreationWizard />} />
+                      <Route path="/datasets" element={<DatasetRegistry />} />
+                      <Route path="/nndr-forecasting" element={<NNDRForecasting />} />
+                      <Route path="/nndr-indicators" element={<NNDRIndicators />} />
                     </Routes>
                   </Layout>
                 </ProtectedRoute>

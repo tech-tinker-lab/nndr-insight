@@ -1,0 +1,239 @@
+[
+  {
+    "standard_id": "",
+    "name": "VOA Non-Domestic Rating Standard",
+    "description": "Standard for VOA Non-Domestic Rating (NDR) data, covering business rates and property valuation.",
+    "version": "1.0",
+    "governing_body": "VOA",
+    "category": "Business Rates",
+    "sector": "property",
+    "status": "active",
+    "tags": ["VOA", "NDR", "property", "business rates"],
+    "created_at": "2024-06-01T12:00:00Z",
+    "updated_at": "2024-07-15T12:00:00Z",
+    "approved": true,
+    "interoperability": "Compatible with HM Land Registry and ONS property datasets.",
+    "update_frequency": "Annual",
+    "official_link": "https://www.gov.uk/government/organisations/valuation-office-agency",
+    "notes": "Includes NNDR valuations and property details.",
+    "fields": [
+      {
+        "name": "property_reference",
+        "display_name": "Property Reference",
+        "data_type": "string",
+        "is_required": true,
+        "is_primary_key": true,
+        "description": "Unique property reference number assigned by VOA.",
+        "example": "VOA123456",
+        "pattern": "^VOA[0-9]{6}$",
+        "compliance": ["UK Land Registry"],
+        "notes": "Must match VOA property reference format."
+      },
+      {
+        "name": "address",
+        "display_name": "Address",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Full property address.",
+        "example": "10 Downing St, London"
+      },
+      {
+        "name": "rateable_value",
+        "display_name": "Rateable Value",
+        "data_type": "float",
+        "is_required": true,
+        "description": "Rateable value of the property in GBP.",
+        "example": 12000.00,
+        "min_value": 0
+      },
+      {
+        "name": "billing_authority",
+        "display_name": "Billing Authority",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Billing authority name.",
+        "example": "South Cambridgeshire District Council"
+      },
+      {
+        "name": "financial_year",
+        "display_name": "Financial Year",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Financial year for the rates.",
+        "example": "2024/25"
+      },
+      {
+        "name": "property_description",
+        "display_name": "Property Description",
+        "data_type": "string",
+        "is_required": false,
+        "description": "Description of the property type or use.",
+        "example": "Shop and Premises"
+      },
+      {
+        "name": "local_council_code",
+        "display_name": "Local Council Code",
+        "data_type": "string",
+        "is_required": false,
+        "description": "Code for the local council area.",
+        "example": "E07000012"
+      }
+    ],
+    "validation": {
+      "status": "valid",
+      "score": 98,
+      "issues": []
+    },
+    "compliance": {
+      "regulations": ["UK Land Registry", "VOA Valuation Standards"],
+      "level": "mandatory",
+      "notes": "All property data must comply with UK valuation and land registry standards."
+    }
+  },
+  {
+    "standard_id": "",
+    "name": "VOA Council Tax Standard",
+    "description": "Standard for VOA Council Tax data, including banding and property details.",
+    "version": "1.0",
+    "governing_body": "VOA",
+    "category": "Council Tax",
+    "sector": "property",
+    "status": "active",
+    "tags": ["VOA", "Council Tax", "property", "banding"],
+    "created_at": "2024-06-01T12:00:00Z",
+    "updated_at": "2024-07-15T12:00:00Z",
+    "approved": true,
+    "interoperability": "Compatible with ONS and local authority datasets.",
+    "update_frequency": "Annual",
+    "official_link": "https://www.gov.uk/council-tax-bands",
+    "notes": "Covers all council tax banding and property attributes.",
+    "fields": [
+      {
+        "name": "property_reference",
+        "display_name": "Property Reference",
+        "data_type": "string",
+        "is_required": true,
+        "is_primary_key": true,
+        "description": "Unique property reference number assigned by VOA.",
+        "example": "VOA654321",
+        "pattern": "^VOA[0-9]{6}$"
+      },
+      {
+        "name": "address",
+        "display_name": "Address",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Full property address.",
+        "example": "221B Baker St, London"
+      },
+      {
+        "name": "council_tax_band",
+        "display_name": "Council Tax Band",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Council tax band assigned to the property.",
+        "example": "D",
+        "enum": ["A", "B", "C", "D", "E", "F", "G", "H"]
+      },
+      {
+        "name": "effective_date",
+        "display_name": "Effective Date",
+        "data_type": "date",
+        "is_required": true,
+        "description": "Date when the banding became effective.",
+        "example": "2024-04-01"
+      },
+      {
+        "name": "billing_authority",
+        "display_name": "Billing Authority",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Billing authority name.",
+        "example": "Camden London Borough Council"
+      },
+      {
+        "name": "property_type",
+        "display_name": "Property Type",
+        "data_type": "string",
+        "is_required": false,
+        "description": "Type of property (e.g., flat, house, bungalow).",
+        "example": "Flat"
+      }
+    ],
+    "validation": {
+      "status": "valid",
+      "score": 99,
+      "issues": []
+    },
+    "compliance": {
+      "regulations": ["VOA Council Tax Standards"],
+      "level": "mandatory",
+      "notes": "All council tax data must comply with VOA and local authority standards."
+    }
+  },
+  {
+    "standard_id": "",
+    "name": "ONS UPRN Standard",
+    "description": "Standard for Unique Property Reference Number (UPRN) data, as defined by the ONS and GeoPlace.",
+    "version": "1.0",
+    "governing_body": "ONS",
+    "category": "Property Reference",
+    "sector": "property",
+    "status": "active",
+    "tags": ["ONS", "UPRN", "GeoPlace", "property"],
+    "created_at": "2024-06-01T12:00:00Z",
+    "updated_at": "2024-07-15T12:00:00Z",
+    "approved": true,
+    "interoperability": "Compatible with VOA, Land Registry, and AddressBase datasets.",
+    "update_frequency": "Quarterly",
+    "official_link": "https://www.ons.gov.uk/methodology/geography/geographicalproducts/uniquepropertyreferencenumberuprn",
+    "notes": "UPRN is the unique identifier for every addressable location in Great Britain.",
+    "fields": [
+      {
+        "name": "uprn",
+        "display_name": "Unique Property Reference Number",
+        "data_type": "string",
+        "is_required": true,
+        "is_primary_key": true,
+        "description": "Unique property reference number (UPRN).",
+        "example": "100021064762",
+        "pattern": "^[0-9]{12}$"
+      },
+      {
+        "name": "address",
+        "display_name": "Address",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Full address for the UPRN.",
+        "example": "Buckingham Palace, London"
+      },
+      {
+        "name": "postcode",
+        "display_name": "Postcode",
+        "data_type": "string",
+        "is_required": true,
+        "description": "Postcode for the address.",
+        "example": "SW1A 1AA",
+        "pattern": "^[A-Z]{1,2}[0-9][0-9A-Z]? ?[0-9][A-Z]{2}$"
+      },
+      {
+        "name": "local_authority",
+        "display_name": "Local Authority",
+        "data_type": "string",
+        "is_required": false,
+        "description": "Name of the local authority.",
+        "example": "Westminster City Council"
+      }
+    ],
+    "validation": {
+      "status": "valid",
+      "score": 100,
+      "issues": []
+    },
+    "compliance": {
+      "regulations": ["ONS UPRN Standards"],
+      "level": "mandatory",
+      "notes": "All UPRN data must comply with ONS and GeoPlace standards."
+    }
+  }
+] 

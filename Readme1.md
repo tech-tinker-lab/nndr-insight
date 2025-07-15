@@ -310,3 +310,54 @@ Similar to `valuations` but stores historic valuation records with additional fi
 ---
 
 If you want, I can also help you create a minimal TOC or split into sections for easier navigation. Would you like that?
+
+---
+
+## **Best Practice for Schema and Seeding**
+
+1. **Keep all DDL (schema) scripts together** and execute them first, in the correct order.
+2. **Keep all seeding scripts in a separate list** and execute them only after all tables and structures are created.
+
+---
+
+## **How to Organize**
+
+- In your `db_setup/schemas/` directory:
+  - Place all DDL scripts (table creation, indexes, triggers, etc.) in one list (e.g., `unified_schema.txt`).
+  - Place all seeding scripts (data inserts) in a separate list (e.g., `seeding_scripts.txt`).
+
+---
+
+## **How to Run**
+
+1. **Run DDL scripts:**
+   ```sh
+   python db_setup/create_schema.py --recreate-db --file db_setup/schemas/unified_schema.txt
+   ```
+   - This will drop, recreate, and build the schema.
+
+2. **Run seeding scripts:**
+   ```sh
+   python db_setup/create_schema.py --file db_setup/schemas/seeding_scripts.txt
+   ```
+   - This will insert your initial data, now that all tables exist.
+
+---
+
+## **What You Need to Do**
+
+- **Update your seeding scripts** to match the new schema (column names, table names, etc.).
+- **Create/maintain two lists:**
+  - `unified_schema.txt` (all DDL scripts, in order)
+  - `seeding_scripts.txt` (all seed scripts, in order)
+
+---
+
+## **Next Steps**
+
+- Would you like me to:
+  - Propose the contents/order for both lists?
+  - Update a sample seeding script to match the new schema?
+  - Or help automate this process in your Python runner?
+
+Let me know your preference, and I’ll proceed!

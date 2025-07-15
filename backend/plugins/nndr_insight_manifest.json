@@ -1,0 +1,47 @@
+{
+  "plugin_id": "nndr_insight",
+  "name": "NNDR Insight",
+  "version": "1.0.0",
+  "description": "Business rate forecasting and non-rated property identification",
+  "author": "NNDR Insight Team",
+  "category": "business_rates",
+  "tags": [
+    "forecasting",
+    "anomaly_detection",
+    "property_analysis"
+  ],
+  "required_datasets": [
+    "properties",
+    "ratepayers",
+    "valuations"
+  ],
+  "required_ai_models": [
+    "forecasting",
+    "anomaly_detection"
+  ],
+  "outputs": [
+    "forecasts",
+    "anomalies",
+    "insights"
+  ],
+  "lifecycle_stages": [
+    "preprocess",
+    "transform",
+    "analyze",
+    "output"
+  ],
+  "parameters": {
+    "forecast_periods": 12,
+    "anomaly_threshold": 2.0,
+    "confidence_level": "medium"
+  },
+  "dependencies": [
+    "pandas",
+    "numpy",
+    "prophet"
+  ],
+  "entry_point": "nndr_insight.py",
+  "is_active": true,
+  "created_at": "2025-07-15T20:47:09.737482",
+  "updated_at": "2025-07-15T20:47:09.737482"
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api/axios';
 import FileAnalysisSection from '../components/FileAnalysisSection';
 import ClientSideFileAnalysis from '../components/ClientSideFileAnalysis';
@@ -87,7 +87,9 @@ import {
   Psychology as PsychologyIcon
 } from '@mui/icons-material';
 
-const DatasetStructures = () => {
+// Rename component and all references from Dataset Structures to Dataset Designer
+const DatasetDesigner = () => {
+  // State variables
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -97,9 +99,9 @@ const DatasetStructures = () => {
   const [datasetTypes, setDatasetTypes] = useState([]);
   const [selectedType, setSelectedType] = useState(null);
   
-  // Dataset Structures
-  const [datasetStructures, setDatasetStructures] = useState([]);
-  const [selectedStructure, setSelectedStructure] = useState(null);
+  // Dataset Designers (was Structures)
+  const [datasetDesigners, setDatasetDesigners] = useState([]);
+  const [selectedDesigner, setSelectedDesigner] = useState(null);
   
   // Table Templates
   const [tableTemplates, setTableTemplates] = useState([]);
@@ -118,14 +120,14 @@ const DatasetStructures = () => {
   const [reviews, setReviews] = useState([]);
   
   // Dialogs
-  const [structureDialog, setStructureDialog] = useState(false);
+  const [designerDialog, setDesignerDialog] = useState(false);
   const [fieldDialog, setFieldDialog] = useState(false);
   const [templateDialog, setTemplateDialog] = useState(false);
   const [tableDialog, setTableDialog] = useState(false);
   const [mappingDialog, setMappingDialog] = useState(false);
   const [uploadDialog, setUploadDialog] = useState(false);
   const [reviewDialog, setReviewDialog] = useState(false);
-  const [tableStructureDialog, setTableStructureDialog] = useState(false);
+  const [tableDesignerDialog, setTableDesignerDialog] = useState(false);
   const [aiDatasetTypeDialog, setAiDatasetTypeDialog] = useState(false);
   
   // Stepper and AI Analysis
@@ -134,18 +136,18 @@ const DatasetStructures = () => {
   const [generatedMappings, setGeneratedMappings] = useState(null);
   const [useClientSideAnalysis, setUseClientSideAnalysis] = useState(true);
   
-  // Table Structure View
-  const [structureFields, setStructureFields] = useState([]);
-  const [selectedStructureForView, setSelectedStructureForView] = useState(null);
+  // Table Designer View
+  const [designerFields, setDesignerFields] = useState([]);
+  const [selectedDesignerForView, setSelectedDesignerForView] = useState(null);
   
   // Delete Confirmation
   const [deleteDialog, setDeleteDialog] = useState(false);
-  const [structureToDelete, setStructureToDelete] = useState(null);
+  const [designerToDelete, setDesignerToDelete] = useState(null);
   
 
   
   // Form States
-  const [newStructure, setNewStructure] = useState({
+  const [newDesigner, setNewDesigner] = useState({
     name: '',
     description: '',
     source_type: '',
@@ -157,7 +159,7 @@ const DatasetStructures = () => {
   
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingStructure, setEditingStructure] = useState(null);
+  const [editingDesigner, setEditingDesigner] = useState(null);
   
   const [newField, setNewField] = useState({
     name: '',
@@ -179,6 +181,11 @@ const DatasetStructures = () => {
     template_sql: ''
   });
 
+  const fileInputRef = useRef();
+  const [aiFile, setAiFile] = useState(null);
+  const [aiAnalysisResult, setAiAnalysisResult] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
   useEffect(() => {
     loadAllData();
   }, []);
@@ -188,16 +195,16 @@ const DatasetStructures = () => {
       setLoading(true);
       const [
         typesResponse,
-        structuresResponse,
+        designersResponse,
         templatesResponse
       ] = await Promise.all([
-        api.get('/api/dataset-structures/types'),
-        api.get('/api/dataset-structures/structures'),
-        api.get('/api/dataset-structures/templates')
+        api.get('/api/design-enhanced/types'),
+        api.get('/api/design-enhanced/designers'),
+        api.get('/api/design-enhanced/templates')
       ]);
 
       setDatasetTypes(typesResponse.data.types || []);
-      setDatasetStructures(structuresResponse.data.structures || []);
+      setDatasetDesigners(designersResponse.data.designers || []);
       setTableTemplates(templatesResponse.data.templates || []);
       setGeneratedTables([]); // Not implemented yet
       setFieldMappings([]); // Not implemented yet
@@ -210,56 +217,56 @@ const DatasetStructures = () => {
     }
   };
 
-  const loadStructureFields = async (structureId) => {
+  const loadDesignerFields = async (designerId) => {
     try {
       setLoading(true);
-      const response = await api.get(`/api/design-enhanced/structures/${structureId}/fields`);
-      setStructureFields(response.data.fields || []);
+      const response = await api.get(`/api/design-enhanced/designers/${designerId}/fields`);
+      setDesignerFields(response.data.fields || []);
     } catch (error) {
-      showMessage('Error loading structure fields: ' + error.message, 'error');
+      showMessage('Error loading designer fields: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleViewTableStructure = async (structure) => {
-    setSelectedStructureForView(structure);
-    await loadStructureFields(structure.structure_id);
-    setTableStructureDialog(true);
+  const handleViewTableDesigner = async (designer) => {
+    setSelectedDesignerForView(designer);
+    await loadDesignerFields(designer.designer_id);
+    setTableDesignerDialog(true);
   };
 
   const autoPopulateFromAnalysis = (analysisData) => {
     if (!analysisData) return;
     
-    const updatedStructure = { ...newStructure };
+    const updatedDesigner = { ...newDesigner };
     
     // Auto-populate name from filename
-    if (analysisData.filename && !updatedStructure.name) {
+    if (analysisData.filename && !updatedDesigner.name) {
       const cleanName = analysisData.filename.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9\s]/g, " ").trim();
-      updatedStructure.name = cleanName;
+      updatedDesigner.name = cleanName;
     }
     
     // Auto-populate source type from detected format
-    if (analysisData.format && !updatedStructure.source_type) {
-      updatedStructure.source_type = analysisData.format.toLowerCase();
+    if (analysisData.format && !updatedDesigner.source_type) {
+      updatedDesigner.source_type = analysisData.format.toLowerCase();
     }
     
     // Auto-populate category from governing body
-    if (analysisData.primary_governing_body && !updatedStructure.category) {
-      updatedStructure.category = analysisData.primary_governing_body;
+    if (analysisData.primary_governing_body && !updatedDesigner.category) {
+      updatedDesigner.category = analysisData.primary_governing_body;
     }
     
     // Auto-populate description from analysis
-    if (analysisData.identified_standards && analysisData.identified_standards.length > 0 && !updatedStructure.description) {
+    if (analysisData.identified_standards && analysisData.identified_standards.length > 0 && !updatedDesigner.description) {
       const standards = analysisData.identified_standards.map(s => s.name).join(", ");
-      updatedStructure.description = `AI-detected standards: ${standards}. ${analysisData.field_count || 0} fields identified.`;
+      updatedDesigner.description = `AI-detected standards: ${standards}. ${analysisData.field_count || 0} fields identified.`;
     }
     
-    setNewStructure(updatedStructure);
+    setNewDesigner(updatedDesigner);
   };
 
-  const handleDeleteStructure = async (structure) => {
-    setStructureToDelete(structure);
+  const handleDeleteDesigner = async (designer) => {
+    setDesignerToDelete(designer);
     setDeleteDialog(true);
   };
 
@@ -268,7 +275,7 @@ const DatasetStructures = () => {
     
     try {
       setLoading(true);
-      await api.delete(`/api/dataset-structures/types/${type.type_id}`);
+      await api.delete(`/api/design-enhanced/types/${type.type_id}`);
       
       // Remove from local state
       setDatasetTypes(prev => 
@@ -283,23 +290,23 @@ const DatasetStructures = () => {
     }
   };
 
-  const confirmDeleteStructure = async () => {
-    if (!structureToDelete) return;
+  const confirmDeleteDesigner = async () => {
+    if (!designerToDelete) return;
     
     try {
       setLoading(true);
-      await api.delete(`/api/design-enhanced/structures/${structureToDelete.structure_id}`);
+      await api.delete(`/api/design-enhanced/designers/${designerToDelete.designer_id}`);
       
-      showMessage(`Dataset structure '${structureToDelete.dataset_name}' deleted successfully`, 'success');
+      showMessage(`Dataset designer '${designerToDelete.dataset_name}' deleted successfully`, 'success');
       
-      // Refresh the structures list
+      // Refresh the designers list
       await loadAllData();
       
       // Close dialogs
       setDeleteDialog(false);
-      setStructureToDelete(null);
+      setDesignerToDelete(null);
     } catch (error) {
-      showMessage('Error deleting structure: ' + error.message, 'error');
+      showMessage('Error deleting designer: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -308,7 +315,7 @@ const DatasetStructures = () => {
   const handleAIDatasetTypeCreated = async (datasetType) => {
     try {
       // Reload dataset types
-      const typesResponse = await api.get('/api/dataset-structures/types');
+      const typesResponse = await api.get('/api/design-enhanced/types');
       setDatasetTypes(typesResponse.data.types || []);
       
       // Close dialog
@@ -321,63 +328,63 @@ const DatasetStructures = () => {
     }
   };
 
-  const handleCreateStructure = async () => {
+  const handleCreateDesigner = async () => {
     try {
       setLoading(true);
-      const structureData = {
-        dataset_name: newStructure.name,
-        description: newStructure.description,
-        source_type: newStructure.data_type, // Use data_type instead of source_type for database
-        file_formats: [newStructure.source_type],
-        governing_body: newStructure.category,
-        target_schema_type: newStructure.target_schema_type,
+      const designerData = {
+        dataset_name: newDesigner.name,
+        description: newDesigner.description,
+        source_type: newDesigner.data_type, // Use data_type instead of source_type for database
+        file_formats: [newDesigner.source_type],
+        governing_body: newDesigner.category,
+        target_schema_type: newDesigner.target_schema_type,
         data_standards: aiAnalysis?.identified_standards?.map(s => s.standard_id) || [],
-        tags: [newStructure.category]
+        tags: [newDesigner.category]
       };
       
       let response;
-      let structureId;
+      let designerId;
       
-      if (isEditMode && editingStructure) {
-        // Update existing structure
-        response = await api.put(`/api/design-enhanced/structures/${editingStructure.structure_id}`, structureData);
-        structureId = editingStructure.structure_id;
-        showMessage('Dataset structure updated successfully!', 'success');
+      if (isEditMode && editingDesigner) {
+        // Update existing designer
+        response = await api.put(`/api/design-enhanced/designers/${editingDesigner.designer_id}`, designerData);
+        designerId = editingDesigner.designer_id;
+        showMessage('Dataset designer updated successfully!', 'success');
       } else {
-        // Create new structure
-        response = await api.post('/api/dataset-structures/structures', structureData);
-        structureId = response.data.structure_id;
-        showMessage('Dataset structure created successfully!', 'success');
+        // Create new designer
+        response = await api.post('/api/design-enhanced/designers', designerData);
+        designerId = response.data.designer_id;
+        showMessage('Dataset designer created successfully!', 'success');
       }
       
       // Create field definitions from the mappings configured in Step 2
-      if (structureId && generatedMappings?.field_mappings && generatedMappings.field_mappings.length > 0) {
+      if (designerId && generatedMappings?.field_mappings && generatedMappings.field_mappings.length > 0) {
         try {
           console.log('Debug: Creating fields from stepper mappings, count:', generatedMappings.field_mappings.length);
-          await createFieldsFromMappings(structureId, generatedMappings);
+          await createFieldsFromMappings(designerId, generatedMappings);
           showMessage(`Created ${generatedMappings.field_mappings.length} field definitions!`, 'success');
         } catch (fieldError) {
           console.error('Error creating fields:', fieldError);
-          showMessage('Structure created but field creation failed: ' + fieldError.message, 'warning');
+          showMessage('Designer created but field creation failed: ' + fieldError.message, 'warning');
         }
-      } else if (structureId && aiAnalysis?.field_analysis && aiAnalysis.field_analysis.length > 0) {
+      } else if (designerId && aiAnalysis?.field_analysis && aiAnalysis.field_analysis.length > 0) {
         // Fallback: Create fields directly from analysis if no mappings
         try {
           console.log('Debug: Creating fields from analysis, count:', aiAnalysis.field_analysis.length);
-          await processFieldMappings(structureId, aiAnalysis.field_analysis);
+          await processFieldMappings(designerId, aiAnalysis.field_analysis);
           showMessage(`Created ${aiAnalysis.field_analysis.length} field definitions from analysis!`, 'success');
         } catch (fieldError) {
           console.error('Error creating fields from analysis:', fieldError);
-          showMessage('Structure created but field creation failed: ' + fieldError.message, 'warning');
+          showMessage('Designer created but field creation failed: ' + fieldError.message, 'warning');
         }
       }
       
-      // Reload structures to get the updated list
-      const structuresResponse = await api.get('/api/design-enhanced/structures');
-      setDatasetStructures(structuresResponse.data.structures || []);
+      // Reload designers to get the updated list
+      const designersResponse = await api.get('/api/design-enhanced/designers');
+      setDatasetDesigners(designersResponse.data.designers || []);
       
       // Reset form and close dialog
-      setNewStructure({
+      setNewDesigner({
         name: '',
         description: '',
         source_type: '',
@@ -387,13 +394,13 @@ const DatasetStructures = () => {
         target_schema_type: 'staging'
       });
       setIsEditMode(false);
-      setEditingStructure(null);
+      setEditingDesigner(null);
       setActiveStep(0);
       setAiAnalysis(null);
       setGeneratedMappings(null);
-      setStructureDialog(false);
+      setDesignerDialog(false);
     } catch (error) {
-      showMessage('Error creating structure: ' + error.message, 'error');
+      showMessage('Error creating designer: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -401,7 +408,7 @@ const DatasetStructures = () => {
 
 
 
-  const processFieldMappings = async (structureId, fieldAnalysis) => {
+  const processFieldMappings = async (designerId, fieldAnalysis) => {
     for (let i = 0; i < fieldAnalysis.length; i++) {
       const field = fieldAnalysis[i];
       console.log(`Debug: Processing field ${i + 1}:`, field);
@@ -452,7 +459,7 @@ const DatasetStructures = () => {
       console.log(`Debug: Creating field with data:`, fieldData);
       
       try {
-        const response = await api.post(`/api/dataset-structures/structures/${structureId}/fields`, fieldData);
+        const response = await api.post(`/api/design-enhanced/designers/${designerId}/fields`, fieldData);
         console.log(`Debug: Field ${i + 1} created successfully:`, response.data);
       } catch (error) {
         console.error(`Debug: Error creating field ${i + 1}:`, error);
@@ -463,7 +470,7 @@ const DatasetStructures = () => {
 
 
 
-  const createFieldsFromMappings = async (structureId, mappings) => {
+  const createFieldsFromMappings = async (designerId, mappings) => {
     const fieldMappings = mappings.field_mappings || [];
     
     for (let i = 0; i < fieldMappings.length; i++) {
@@ -541,7 +548,7 @@ const DatasetStructures = () => {
         sequence_order: mapping.sequence_order || i + 1
       };
       
-                await api.post(`/api/dataset-structures/structures/${structureId}/fields`, fieldData);
+                await api.post(`/api/design-enhanced/designers/${designerId}/fields`, fieldData);
     }
   };
 
@@ -560,7 +567,7 @@ const DatasetStructures = () => {
         description: newField.description
       };
       
-              const response = await api.post(`/api/dataset-structures/structures/${selectedStructure.structure_id}/fields`, fieldData);
+              const response = await api.post(`/api/design-enhanced/designers/${selectedDesigner.designer_id}/fields`, fieldData);
       
       setFieldDialog(false);
       setNewField({ name: '', display_name: '', data_type: '', postgis_type: '', is_required: false, is_primary_key: false, default_value: '', constraints: '', description: '' });
@@ -588,7 +595,7 @@ const DatasetStructures = () => {
         postgis_enabled: true
       };
       
-      const response = await api.post('/api/dataset-structures/templates', templateData);
+      const response = await api.post('/api/design-enhanced/templates', templateData);
       
       // Reload templates to get the updated list
       const templatesResponse = await api.get('/api/design-enhanced/templates');
@@ -612,7 +619,7 @@ const DatasetStructures = () => {
         schema_name: 'public'
       };
       
-              const response = await api.post(`/api/dataset-structures/templates/${templateId}/generate`, generationData);
+              const response = await api.post(`/api/design-enhanced/templates/${templateId}/generate`, generationData);
       showMessage('Table generated successfully', 'success');
     } catch (error) {
       showMessage('Error generating table: ' + error.message, 'error');
@@ -621,17 +628,17 @@ const DatasetStructures = () => {
     }
   };
 
-  // Generate SQL preview for the structure
+  // Generate SQL preview for the designer
   const generateSQLPreview = () => {
-    if (!aiAnalysis || !newStructure.name) return '';
+    if (!aiAnalysis || !newDesigner.name) return '';
 
-    const tableName = newStructure.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const tableName = newDesigner.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
     const fields = aiAnalysis.field_analysis || [];
-    const schemaType = newStructure.target_schema_type || 'staging';
+    const schemaType = newDesigner.target_schema_type || 'staging';
     
-    let sql = `-- Generated SQL for ${newStructure.name}\n`;
-    sql += `-- Data Type: ${newStructure.data_type}\n`;
-    sql += `-- Source Type: ${newStructure.source_type}\n`;
+    let sql = `-- Generated SQL for ${newDesigner.name}\n`;
+    sql += `-- Data Type: ${newDesigner.data_type}\n`;
+    sql += `-- Source Type: ${newDesigner.source_type}\n`;
     sql += `-- Target Schema: ${schemaType}\n\n`;
     
     sql += `CREATE TABLE ${schemaType}.${tableName}_${schemaType} (\n`;
@@ -711,6 +718,27 @@ const DatasetStructures = () => {
     }
   };
 
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setAiFile(file);
+    setAiLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      // Call backend AI analysis endpoint
+      const response = await api.post('/api/ai/analyze-dataset', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setAiAnalysisResult(response.data);
+      showMessage('AI analysis complete!', 'success');
+    } catch (error) {
+      showMessage('AI analysis failed: ' + error.message, 'error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const renderDatasetTypes = () => (
     <div>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
@@ -721,7 +749,7 @@ const DatasetStructures = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => setStructureDialog(true)}
+            onClick={() => setDesignerDialog(true)}
             sx={{ mr: 1 }}
           >
             Create Dataset Type
@@ -787,58 +815,58 @@ const DatasetStructures = () => {
     </div>
   );
 
-  const renderDatasetStructures = () => (
+  const renderDatasetDesigners = () => (
     <div className="space-y-6">
       <Box display="flex" justifyContent="space-between" alignItems="center">
         <Typography variant="h4" gutterBottom>
           <StorageIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Dataset Structures
+          Dataset Designers
         </Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => setStructureDialog(true)}
+          onClick={() => setDesignerDialog(true)}
         >
-          Create Structure
+          Create Designer
         </Button>
       </Box>
 
       <Grid container spacing={3}>
-        {datasetStructures.map((structure) => (
-          <Grid item xs={12} md={6} lg={4} key={structure.id}>
+        {datasetDesigners.map((designer) => (
+          <Grid item xs={12} md={6} lg={4} key={designer.id}>
             <Card>
               <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                   <Typography variant="h6" gutterBottom>
-                    {structure.dataset_name}
+                    {designer.dataset_name}
                   </Typography>
                   <Chip 
-                    label={structure.status || 'draft'} 
-                    color={getStatusColor(structure.status || 'draft')}
+                    label={designer.status || 'draft'} 
+                    color={getStatusColor(designer.status || 'draft')}
                     size="small"
                   />
                 </Box>
                 <Typography variant="body2" color="textSecondary" gutterBottom>
-                  {structure.description}
+                  {designer.description}
                 </Typography>
                 <Typography variant="caption" display="block">
-                  Source: {structure.source_type} | Category: {structure.governing_body}
+                  Source: {designer.source_type} | Category: {designer.governing_body}
                 </Typography>
                 <Typography variant="caption" display="block">
-                  Created: {new Date(structure.created_at).toLocaleDateString()}
+                  Created: {new Date(designer.created_at).toLocaleDateString()}
                 </Typography>
                 <Box mt={2} display="flex" justifyContent="space-between" alignItems="center">
                   <Button
                     size="small"
                     startIcon={<TableIcon />}
-                    onClick={() => handleViewTableStructure(structure)}
+                    onClick={() => handleViewTableDesigner(designer)}
                   >
-                    View Structure
+                    View Designer
                   </Button>
                   <IconButton
                     size="small"
                     color="error"
-                    onClick={() => handleDeleteStructure(structure)}
+                    onClick={() => handleDeleteDesigner(designer)}
                   >
                     <DeleteOutlineIcon />
                   </IconButton>
@@ -919,7 +947,7 @@ const DatasetStructures = () => {
           <TableHead>
             <TableRow>
               <TableCell>File Name</TableCell>
-              <TableCell>Dataset Structure</TableCell>
+              <TableCell>Dataset Designer</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Records</TableCell>
               <TableCell>Uploaded</TableCell>
@@ -961,24 +989,24 @@ const DatasetStructures = () => {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Tab label="Dataset Types" icon={<DataIcon />} />
-          <Tab label="Dataset Structures" icon={<StorageIcon />} />
+          <Tab label="Dataset Designers" icon={<StorageIcon />} />
           <Tab label="Table Templates" icon={<SchemaIcon />} />
           <Tab label="Recent Uploads" icon={<CloudUploadIcon />} />
         </Tabs>
       </Box>
 
       {activeTab === 0 && renderDatasetTypes()}
-      {activeTab === 1 && renderDatasetStructures()}
+      {activeTab === 1 && renderDatasetDesigners()}
       {activeTab === 2 && renderTableTemplates()}
       {activeTab === 3 && renderRecentUploads()}
 
-      {/* Create Structure Dialog */}
+      {/* Create Designer Dialog */}
       <Dialog 
-        open={structureDialog} 
+        open={designerDialog} 
         onClose={() => {
-          setStructureDialog(false);
+          setDesignerDialog(false);
           // Reset form state
-          setNewStructure({
+          setNewDesigner({
             name: '',
             description: '',
             source_type: '',
@@ -987,7 +1015,7 @@ const DatasetStructures = () => {
             data_type: 'file'
           });
           setIsEditMode(false);
-          setEditingStructure(null);
+          setEditingDesigner(null);
           setActiveStep(0);
           setAiAnalysis(null);
           setGeneratedMappings(null);
@@ -996,7 +1024,7 @@ const DatasetStructures = () => {
         fullWidth
       >
         <DialogTitle>
-          {isEditMode ? 'Edit Dataset Structure' : 'Create Dataset Structure'}
+          {isEditMode ? 'Edit Dataset Designer' : 'Create Dataset Designer'}
         </DialogTitle>
         <DialogContent>
           <Stepper activeStep={activeStep} orientation="vertical" sx={{ mt: 2 }}>
@@ -1106,76 +1134,35 @@ const DatasetStructures = () => {
                     }}
                   />
                 ) : (
-                  <FileAnalysisSection
-                    onAnalysisComplete={(analysisData) => {
-                      setAiAnalysis(analysisData);
-                      autoPopulateFromAnalysis(analysisData);
-                      
-                      // Automatically generate field mappings from AI analysis
-                      if (analysisData.field_analysis && analysisData.field_analysis.length > 0) {
-                        const processedMappings = analysisData.field_analysis.map((field, index) => {
-                          // Map field types to valid database types (same logic as in FieldAnalysisSection)
-                          let selectedType = 'text';
-                          if (field.type === 'empty') {
-                            selectedType = 'text';
-                          } else if (field.type) {
-                            switch (field.type) {
-                              case 'postcode':
-                              case 'uprn':
-                              case 'usrn':
-                              case 'coordinate':
-                              case 'longitude':
-                              case 'latitude':
-                                selectedType = 'text';
-                                break;
-                              case 'integer':
-                              case 'number':
-                                selectedType = 'integer';
-                                break;
-                              case 'decimal':
-                              case 'float':
-                              case 'numeric':
-                                selectedType = 'decimal';
-                                break;
-                              case 'date':
-                                selectedType = 'date';
-                                break;
-                              case 'timestamp':
-                                selectedType = 'timestamp';
-                                break;
-                              case 'boolean':
-                                selectedType = 'boolean';
-                                break;
-                              case 'geometry':
-                                selectedType = 'geometry';
-                                break;
-                              case 'geography':
-                                selectedType = 'geography';
-                                break;
-                              default:
-                                selectedType = 'text';
-                            }
-                          }
-
-                          return {
-                            source_field: field.field_name || `field_${index + 1}`,
-                            staging_field: field.field_name || `field_${index + 1}`,
-                            data_type: selectedType,
-                            postgis_type: null,
-                            is_required: false,
-                            is_primary_key: index === 0,
-                            default_value: '',
-                            constraints: '',
-                            description: field.field_name || `Field ${index + 1}`
-                          };
-                        });
-                        setGeneratedMappings({ field_mappings: processedMappings });
-                      }
-                    }}
-                    onMappingsGenerated={(mappingsData) => {
-                      setGeneratedMappings(mappingsData);
-                    }}
-                  />
+                  <Box mb={4}>
+                    <Typography variant="h6" gutterBottom>
+                      AI-Powered Field Inference & Mapping
+                    </Typography>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      style={{ display: 'none' }}
+                      onChange={handleFileChange}
+                      accept=".csv,.json,.xlsx,.xls,.xml,.zip"
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={() => fileInputRef.current.click()}
+                      disabled={aiLoading}
+                      startIcon={<UploadIcon />}
+                    >
+                      {aiLoading ? 'Analyzing...' : 'Upload & Analyze File'}
+                    </Button>
+                    {aiAnalysisResult && (
+                      <Box mt={2}>
+                        <Typography variant="subtitle1">AI Analysis Result:</Typography>
+                        <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
+                          {JSON.stringify(aiAnalysisResult, null, 2)}
+                        </pre>
+                        {/* TODO: Add UI for editing suggested fields, mappings, and standards */}
+                      </Box>
+                    )}
+                  </Box>
                 )}
                 
                 {/* Data Preview Section */}
@@ -1227,9 +1214,9 @@ const DatasetStructures = () => {
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
-                      label="Structure Name"
-                      value={newStructure.name}
-                      onChange={(e) => setNewStructure({...newStructure, name: e.target.value})}
+                      label="Designer Name"
+                      value={newDesigner.name}
+                      onChange={(e) => setNewDesigner({...newDesigner, name: e.target.value})}
                       placeholder={aiAnalysis?.filename ? aiAnalysis.filename.replace(/\.[^/.]+$/, "") : ""}
                     />
                   </Grid>
@@ -1237,16 +1224,16 @@ const DatasetStructures = () => {
                     <TextField
                       fullWidth
                       label="Version"
-                      value={newStructure.version}
-                      onChange={(e) => setNewStructure({...newStructure, version: e.target.value})}
+                      value={newDesigner.version}
+                      onChange={(e) => setNewDesigner({...newDesigner, version: e.target.value})}
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <FormControl fullWidth>
                       <InputLabel>Source Type</InputLabel>
                       <Select
-                        value={newStructure.source_type}
-                        onChange={(e) => setNewStructure({...newStructure, source_type: e.target.value})}
+                        value={newDesigner.source_type}
+                        onChange={(e) => setNewDesigner({...newDesigner, source_type: e.target.value})}
                       >
                         <MenuItem value="csv">CSV</MenuItem>
                         <MenuItem value="json">JSON</MenuItem>
@@ -1262,8 +1249,8 @@ const DatasetStructures = () => {
                     <FormControl fullWidth>
                       <InputLabel>Data Type</InputLabel>
                       <Select
-                        value={newStructure.data_type}
-                        onChange={(e) => setNewStructure({...newStructure, data_type: e.target.value})}
+                        value={newDesigner.data_type}
+                        onChange={(e) => setNewDesigner({...newDesigner, data_type: e.target.value})}
                       >
                         <MenuItem value="file">File Upload</MenuItem>
                         <MenuItem value="api">API Integration</MenuItem>
@@ -1276,8 +1263,8 @@ const DatasetStructures = () => {
                     <FormControl fullWidth>
                       <InputLabel>Target Schema Type</InputLabel>
                       <Select
-                        value={newStructure.target_schema_type}
-                        onChange={(e) => setNewStructure({...newStructure, target_schema_type: e.target.value})}
+                        value={newDesigner.target_schema_type}
+                        onChange={(e) => setNewDesigner({...newDesigner, target_schema_type: e.target.value})}
                       >
                         <MenuItem value="staging">Staging</MenuItem>
                         <MenuItem value="production">Production</MenuItem>
@@ -1294,8 +1281,8 @@ const DatasetStructures = () => {
                     <TextField
                       fullWidth
                       label="Category"
-                      value={newStructure.category}
-                      onChange={(e) => setNewStructure({...newStructure, category: e.target.value})}
+                      value={newDesigner.category}
+                      onChange={(e) => setNewDesigner({...newDesigner, category: e.target.value})}
                       placeholder={aiAnalysis?.primary_governing_body || "e.g., Ordnance Survey, VOA, ONS"}
                     />
                   </Grid>
@@ -1305,8 +1292,8 @@ const DatasetStructures = () => {
                       multiline
                       rows={3}
                       label="Description"
-                      value={newStructure.description}
-                      onChange={(e) => setNewStructure({...newStructure, description: e.target.value})}
+                      value={newDesigner.description}
+                      onChange={(e) => setNewDesigner({...newDesigner, description: e.target.value})}
                     />
                   </Grid>
                 </Grid>
@@ -1321,7 +1308,7 @@ const DatasetStructures = () => {
                   <Button
                     variant="contained"
                     onClick={() => setActiveStep(2)}
-                    disabled={!newStructure.name || !newStructure.source_type}
+                    disabled={!newDesigner.name || !newDesigner.source_type}
                   >
                     Next: Review & Create
                   </Button>
@@ -1333,13 +1320,13 @@ const DatasetStructures = () => {
               <StepLabel>Review & Create</StepLabel>
               <StepContent>
                 <Typography variant="body2" color="textSecondary" gutterBottom>
-                  Review the AI analysis, field mappings, and generated SQL before creating the dataset structure
+                  Review the AI analysis, field mappings, and generated SQL before creating the dataset designer
                 </Typography>
                 
                 {generatedMappings && (
                   <Alert severity="info" sx={{ mb: 2 }}>
                     <Typography variant="body2">
-                      {generatedMappings.field_mappings?.length || 0} fields have been configured and are ready for structure creation.
+                      {generatedMappings.field_mappings?.length || 0} fields have been configured and are ready for designer creation.
                     </Typography>
                   </Alert>
                 )}
@@ -1377,10 +1364,10 @@ const DatasetStructures = () => {
                   </Button>
                   <Button
                     variant="contained"
-                    onClick={handleCreateStructure}
-                    disabled={!newStructure.name || !newStructure.source_type || !generatedMappings?.field_mappings}
+                    onClick={handleCreateDesigner}
+                    disabled={!newDesigner.name || !newDesigner.source_type || !generatedMappings?.field_mappings}
                   >
-                    {isEditMode ? 'Update Dataset Structure' : 'Create Dataset Structure'}
+                    {isEditMode ? 'Update Dataset Designer' : 'Create Dataset Designer'}
                   </Button>
                 </Box>
               </StepContent>
@@ -1388,13 +1375,13 @@ const DatasetStructures = () => {
           </Stepper>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStructureDialog(false)}>Cancel</Button>
+          <Button onClick={() => setDesignerDialog(false)}>Cancel</Button>
         </DialogActions>
       </Dialog>
 
       {/* Create Field Dialog */}
       <Dialog open={fieldDialog} onClose={() => setFieldDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Add Field to {selectedStructure?.dataset_name}</DialogTitle>
+        <DialogTitle>Add Field to {selectedDesigner?.dataset_name}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} sm={6}>
@@ -1526,14 +1513,14 @@ const DatasetStructures = () => {
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Dataset Structure</InputLabel>
+                <InputLabel>Dataset Designer</InputLabel>
                 <Select
                   value={newTemplate.structure_id || ''}
                   onChange={(e) => setNewTemplate({...newTemplate, structure_id: e.target.value})}
                 >
-                  {datasetStructures.map((structure) => (
-                    <MenuItem key={structure.structure_id} value={structure.structure_id}>
-                      {structure.dataset_name}
+                  {datasetDesigners.map((designer) => (
+                    <MenuItem key={designer.designer_id} value={designer.designer_id}>
+                      {designer.dataset_name}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1570,17 +1557,17 @@ const DatasetStructures = () => {
         </DialogActions>
       </Dialog>
 
-             {/* Table Structure Dialog */}
-       <Dialog open={tableStructureDialog} onClose={() => setTableStructureDialog(false)} maxWidth="xl" fullWidth>
+             {/* Table Designer Dialog */}
+       <Dialog open={tableDesignerDialog} onClose={() => setTableDesignerDialog(false)} maxWidth="xl" fullWidth>
          <DialogTitle>
            <Box display="flex" alignItems="center" justifyContent="space-between">
              <Typography variant="h6">
                <TableIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-               Table Structure: {selectedStructureForView?.dataset_name}
+               Table Designer: {selectedDesignerForView?.dataset_name}
              </Typography>
              <Chip 
-               label={selectedStructureForView?.status || 'draft'} 
-               color={getStatusColor(selectedStructureForView?.status || 'draft')}
+               label={selectedDesignerForView?.status || 'draft'} 
+               color={getStatusColor(selectedDesignerForView?.status || 'draft')}
                size="small"
              />
            </Box>
@@ -1588,18 +1575,18 @@ const DatasetStructures = () => {
          <DialogContent>
            <Box mb={2}>
              <Typography variant="body2" color="textSecondary">
-               {selectedStructureForView?.description}
+               {selectedDesignerForView?.description}
              </Typography>
              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-               Source Type: {selectedStructureForView?.source_type} | 
-               Category: {selectedStructureForView?.governing_body} | 
-               Created: {selectedStructureForView?.created_at ? new Date(selectedStructureForView.created_at).toLocaleDateString() : 'N/A'}
+               Source Type: {selectedDesignerForView?.source_type} | 
+               Category: {selectedDesignerForView?.governing_body} | 
+               Created: {selectedDesignerForView?.created_at ? new Date(selectedDesignerForView.created_at).toLocaleDateString() : 'N/A'}
              </Typography>
            </Box>
            
            <Typography variant="h6" gutterBottom>
              <FieldIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-             Field Definitions ({structureFields.length} fields)
+             Field Definitions ({designerFields.length} fields)
            </Typography>
            
            <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
@@ -1626,16 +1613,16 @@ const DatasetStructures = () => {
                        </Typography>
                      </TableCell>
                    </TableRow>
-                 ) : structureFields.length === 0 ? (
+                 ) : designerFields.length === 0 ? (
                    <TableRow>
                      <TableCell colSpan={9} align="center">
                        <Typography variant="body2" color="textSecondary">
-                         No fields defined for this structure yet.
+                         No fields defined for this designer yet.
                        </Typography>
                      </TableCell>
                    </TableRow>
                  ) : (
-                   structureFields.map((field) => (
+                   designerFields.map((field) => (
                      <TableRow key={field.id} hover>
                        <TableCell>
                          <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
@@ -1692,7 +1679,7 @@ const DatasetStructures = () => {
              </Table>
            </TableContainer>
            
-           {structureFields.length > 0 && (
+           {designerFields.length > 0 && (
              <Box mt={2}>
                <Accordion>
                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -1721,7 +1708,7 @@ const DatasetStructures = () => {
          <DialogActions>
            <Button 
              startIcon={<RefreshIcon />}
-             onClick={() => loadStructureFields(selectedStructureForView.structure_id)}
+             onClick={() => loadDesignerFields(selectedDesignerForView.designer_id)}
              disabled={loading}
            >
              Refresh
@@ -1729,34 +1716,34 @@ const DatasetStructures = () => {
            <Button 
              startIcon={<EditIcon />}
              onClick={() => {
-               setTableStructureDialog(false);
-               // Open edit dialog for this structure
-               setEditingStructure(selectedStructureForView);
-               setNewStructure({
-                 name: selectedStructureForView.dataset_name,
-                 description: selectedStructureForView.description || '',
-                 source_type: selectedStructureForView.source_type,
-                 category: selectedStructureForView.governing_body || '',
+               setTableDesignerDialog(false);
+               // Open edit dialog for this designer
+               setEditingDesigner(selectedDesignerForView);
+               setNewDesigner({
+                 name: selectedDesignerForView.dataset_name,
+                 description: selectedDesignerForView.description || '',
+                 source_type: selectedDesignerForView.source_type,
+                 category: selectedDesignerForView.governing_body || '',
                  version: '1.0',
-                 data_type: selectedStructureForView.source_type === 'file' ? 'file' : selectedStructureForView.source_type
+                 data_type: selectedDesignerForView.source_type === 'file' ? 'file' : selectedDesignerForView.source_type
                });
                setIsEditMode(true);
-               setStructureDialog(true);
+               setDesignerDialog(true);
              }}
            >
-             Edit Structure
+             Edit Designer
            </Button>
            <Button 
              startIcon={<FieldIcon />}
              onClick={() => {
-               setTableStructureDialog(false);
-               setSelectedStructure(selectedStructureForView);
+               setTableDesignerDialog(false);
+               setSelectedDesigner(selectedDesignerForView);
                setFieldDialog(true);
              }}
            >
              Add Field
            </Button>
-           <Button onClick={() => setTableStructureDialog(false)}>Close</Button>
+           <Button onClick={() => setTableDesignerDialog(false)}>Close</Button>
          </DialogActions>
        </Dialog>
 
@@ -1914,14 +1901,14 @@ const DatasetStructures = () => {
          </DialogTitle>
          <DialogContent>
            <Typography variant="body1" gutterBottom>
-             Are you sure you want to delete the dataset structure:
+             Are you sure you want to delete the dataset designer:
            </Typography>
            <Typography variant="h6" color="error" gutterBottom>
-             "{structureToDelete?.dataset_name}"
+             "{designerToDelete?.dataset_name}"
            </Typography>
            <Alert severity="warning" sx={{ mt: 2 }}>
              <Typography variant="body2">
-               This action will permanently delete the structure and all its associated field definitions. 
+               This action will permanently delete the designer and all its associated field definitions. 
                This action cannot be undone.
              </Typography>
            </Alert>
@@ -1934,13 +1921,13 @@ const DatasetStructures = () => {
              Cancel
            </Button>
            <Button 
-             onClick={confirmDeleteStructure}
+             onClick={confirmDeleteDesigner}
              color="error"
              variant="contained"
              disabled={loading}
              startIcon={loading ? null : <DeleteOutlineIcon />}
            >
-             {loading ? 'Deleting...' : 'Delete Structure'}
+             {loading ? 'Deleting...' : 'Delete Designer'}
            </Button>
          </DialogActions>
        </Dialog>
@@ -1987,4 +1974,4 @@ const DatasetStructures = () => {
   );
 };
 
-export default DatasetStructures; 
+export default DatasetDesigner; 

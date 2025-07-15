@@ -1,3 +1,10 @@
+-- Drop existing tables if they exist to ensure a clean slate
+DROP TABLE IF EXISTS design.stage_validations CASCADE;
+DROP TABLE IF EXISTS design.upload_processing_logs CASCADE;
+DROP TABLE IF EXISTS design.dataset_uploads CASCADE;
+DROP TABLE IF EXISTS design.pipeline_stages CASCADE;
+DROP TABLE IF EXISTS design.datasets CASCADE;
+
 -- Dataset Pipeline Schema for Design System
 -- This schema supports dataset management with pipeline stages and approval workflows
 
@@ -19,7 +26,7 @@ CREATE TABLE IF NOT EXISTS design.datasets (
     status VARCHAR(50) DEFAULT 'draft', -- draft, active, inactive, archived
     version INTEGER DEFAULT 1,
     is_active BOOLEAN DEFAULT true,
-    
+
     -- Constraints
     CONSTRAINT valid_source_type CHECK (source_type IN ('file', 'api', 'database')),
     CONSTRAINT valid_status CHECK (status IN ('draft', 'active', 'inactive', 'archived'))
@@ -40,7 +47,7 @@ CREATE TABLE IF NOT EXISTS design.pipeline_stages (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) DEFAULT 'active', -- active, inactive
     sequence_order INTEGER NOT NULL,
-    
+
     -- Constraints
     CONSTRAINT valid_stage_type CHECK (stage_type IN ('upload', 'staging', 'filtered', 'final', 'custom')),
     CONSTRAINT valid_stage_status CHECK (status IN ('active', 'inactive')),
@@ -66,7 +73,7 @@ CREATE TABLE IF NOT EXISTS design.dataset_uploads (
     processing_started_at TIMESTAMP,
     processing_completed_at TIMESTAMP,
     error_message TEXT,
-    
+
     -- Constraints
     CONSTRAINT valid_upload_status CHECK (status IN ('uploaded', 'processing', 'approved', 'rejected', 'completed')),
     CONSTRAINT valid_current_stage CHECK (current_stage IN ('upload', 'staging', 'filtered', 'final'))
@@ -87,7 +94,7 @@ CREATE TABLE IF NOT EXISTS design.upload_processing_logs (
     records_invalid INTEGER DEFAULT 0,
     validation_errors JSONB DEFAULT '[]',
     processing_notes TEXT,
-    
+
     -- Constraints
     CONSTRAINT valid_processing_status CHECK (status IN ('started', 'completed', 'failed', 'skipped'))
 );
@@ -104,7 +111,7 @@ CREATE TABLE IF NOT EXISTS design.stage_validations (
     error_message TEXT,
     affected_records INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Constraints
     CONSTRAINT valid_validation_type CHECK (validation_type IN ('schema', 'business_rule', 'data_quality', 'custom')),
     CONSTRAINT valid_validation_status CHECK (status IN ('passed', 'failed', 'warning'))
@@ -142,144 +149,10 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
-CREATE TRIGGER update_datasets_updated_at 
-    BEFORE UPDATE ON design.datasets 
+CREATE TRIGGER update_datasets_updated_at
+    BEFORE UPDATE ON design.datasets
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_pipeline_stages_updated_at 
-    BEFORE UPDATE ON design.pipeline_stages 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Insert sample data for testing
-INSERT INTO design.datasets (
-    dataset_name, description, source_type, business_owner, data_steward, created_by, status
-) VALUES 
-(
-    'NNDR Ratepayers',
-    'National Non-Domestic Rates ratepayer data',
-    'file',
-    'Business Rates Team',
-    'Data Management Team',
-    'admin',
-    'active'
-),
-(
-    'Property Boundaries',
-    'Property boundary and address data',
-    'file',
-    'Property Team',
-    'GIS Team',
-    'admin',
-    'active'
-),
-(
-    'Business Classifications',
-    'Business classification and SIC codes',
-    'api',
-    'Business Intelligence Team',
-    'Data Quality Team',
-    'admin',
-    'draft'
-) ON CONFLICT (dataset_name) DO NOTHING;
-
--- Insert sample pipeline stages
-INSERT INTO design.pipeline_stages (
-    dataset_id, stage_name, stage_type, approval_required, approvers, created_by, sequence_order
-)
-SELECT
-    d.dataset_id,
-    'File Upload',
-    'upload',
-    false,
-    '[]'::jsonb,
-    'admin',
-    1
-FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
-UNION ALL
-SELECT
-    d.dataset_id,
-    'Staging Validation',
-    'staging',
-    true,
-    '["admin", "power_user"]'::jsonb,
-    'admin',
-    2
-FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
-UNION ALL
-SELECT
-    d.dataset_id,
-    'Business Rules Check',
-    'filtered',
-    true,
-    '["admin"]'::jsonb,
-    'admin',
-    3
-FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
-UNION ALL
-SELECT
-    d.dataset_id,
-    'Production Ready',
-    'final',
-    true,
-    '["admin"]'::jsonb,
-    'admin',
-    4
-FROM design.datasets d WHERE d.dataset_name = 'NNDR Ratepayers'
-ON CONFLICT (dataset_id, sequence_order) DO NOTHING;
-
--- Create views for easier querying
-CREATE OR REPLACE VIEW design.dataset_pipeline_summary AS
-SELECT 
-    d.dataset_id,
-    d.dataset_name,
-    d.description,
-    d.business_owner,
-    d.data_steward,
-    d.status as dataset_status,
-    COUNT(ps.stage_id) as total_stages,
-    COUNT(du.upload_id) as total_uploads,
-    COUNT(CASE WHEN du.status = 'completed' THEN 1 END) as completed_uploads,
-    COUNT(CASE WHEN du.status = 'processing' THEN 1 END) as processing_uploads,
-    COUNT(CASE WHEN du.status = 'uploaded' THEN 1 END) as pending_uploads,
-    d.created_at,
-    d.updated_at
-FROM design.datasets d
-LEFT JOIN design.pipeline_stages ps ON d.dataset_id = ps.dataset_id AND ps.status = 'active'
-LEFT JOIN design.dataset_uploads du ON d.dataset_id = du.dataset_id
-WHERE d.is_active = true
-GROUP BY d.dataset_id, d.dataset_name, d.description, d.business_owner, d.data_steward, 
-         d.status, d.created_at, d.updated_at;
-
-CREATE OR REPLACE VIEW design.upload_pipeline_status AS
-SELECT 
-    du.upload_id,
-    du.dataset_id,
-    d.dataset_name,
-    du.file_name,
-    du.status as upload_status,
-    du.current_stage,
-    du.uploaded_by,
-    du.uploaded_at,
-    du.approved_by,
-    du.approved_at,
-    ps.stage_name,
-    ps.approval_required,
-    ps.approvers,
-    CASE 
-        WHEN du.status = 'completed' THEN 'Completed'
-        WHEN du.status = 'processing' THEN 'Processing'
-        WHEN du.status = 'approved' THEN 'Approved'
-        WHEN du.status = 'rejected' THEN 'Rejected'
-        WHEN du.status = 'uploaded' THEN 'Pending Approval'
-        ELSE 'Unknown'
-    END as status_display
-FROM design.dataset_uploads du
-JOIN design.datasets d ON du.dataset_id = d.dataset_id
-LEFT JOIN design.pipeline_stages ps ON du.dataset_id = ps.dataset_id AND du.current_stage = ps.stage_type
-WHERE d.is_active = true
-ORDER BY du.uploaded_at DESC;
-
--- Grant permissions (commented out - role may not exist)
--- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA design TO authenticated;
--- GRANT SELECT ON design.dataset_pipeline_summary TO authenticated;
--- GRANT SELECT ON design.upload_pipeline_status TO authenticated; 
+CREATE TRIGGER update_pipeline_stages_updated_at
+    BEFORE UPDATE ON design.pipeline_stages
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column(); 

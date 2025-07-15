@@ -1,0 +1,46 @@
+{
+  "plugin_id": "business_demography",
+  "name": "Business Demography",
+  "version": "1.0.0",
+  "description": "Business survival rates and startup growth analysis",
+  "author": "NNDR Insight Team",
+  "category": "business_analysis",
+  "tags": [
+    "survival_rates",
+    "startup_growth",
+    "sic_evolution"
+  ],
+  "required_datasets": [
+    "businesses",
+    "registrations",
+    "closures"
+  ],
+  "required_ai_models": [
+    "trend_analysis",
+    "clustering"
+  ],
+  "outputs": [
+    "survival_analysis",
+    "growth_trends",
+    "cluster_analysis"
+  ],
+  "lifecycle_stages": [
+    "preprocess",
+    "transform",
+    "analyze",
+    "output"
+  ],
+  "parameters": {
+    "analysis_period": "5y",
+    "cluster_count": 5
+  },
+  "dependencies": [
+    "pandas",
+    "numpy",
+    "scikit-learn"
+  ],
+  "entry_point": "business_demography.py",
+  "is_active": true,
+  "created_at": "2025-07-15T20:47:09.737482",
+  "updated_at": "2025-07-15T20:47:09.737482"
+}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield, Palette, GitBranch, Sparkles
+  Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield, Palette, GitBranch, Sparkles, BookOpen, Plus
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useUser } from '../../context/UserContext';
@@ -10,10 +10,15 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Geospatial', href: '/geospatial', icon: Globe },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'NNDR Forecasting', href: '/nndr-forecasting', icon: BarChart3 },
+  { name: 'NNDR Indicators', href: '/nndr-indicators', icon: BarChart3 },
   { name: 'Properties', href: '/properties', icon: Building2 },
   { name: 'Maps', href: '/maps', icon: Map },
   { name: 'Upload', href: '/upload', icon: Upload },
     { name: 'Dataset Structures', href: '/dataset-structures', icon: Sparkles },
+  { name: 'Data Standards', href: '/data-standards', icon: BookOpen },
+  { name: 'Datasets', href: '/datasets', icon: Database },
+  { name: 'New Dataset', href: '/datasets/new', icon: Plus },
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Staged Data', href: '/admin', icon: Shield },
   { name: 'Master Data', href: '/master', icon: Database },

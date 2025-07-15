@@ -1,0 +1,45 @@
+{
+  "plugin_id": "finance_insight",
+  "name": "Finance Insight",
+  "version": "1.0.0",
+  "description": "Financial analysis and spend tracking",
+  "author": "NNDR Insight Team",
+  "category": "finance",
+  "tags": [
+    "spend_analysis",
+    "grant_tracking",
+    "vendor_risk"
+  ],
+  "required_datasets": [
+    "transactions",
+    "grants",
+    "vendors"
+  ],
+  "required_ai_models": [
+    "anomaly_detection",
+    "risk_assessment"
+  ],
+  "outputs": [
+    "spend_analysis",
+    "risk_scores",
+    "insights"
+  ],
+  "lifecycle_stages": [
+    "preprocess",
+    "transform",
+    "analyze",
+    "output"
+  ],
+  "parameters": {
+    "risk_threshold": 0.7,
+    "analysis_period": "12m"
+  },
+  "dependencies": [
+    "pandas",
+    "numpy"
+  ],
+  "entry_point": "finance_insight.py",
+  "is_active": true,
+  "created_at": "2025-07-15T20:47:09.737482",
+  "updated_at": "2025-07-15T20:47:09.737482"
+}

@@ -37,8 +37,8 @@ class PluginManifest:
     dependencies: List[str]
     entry_point: str
     is_active: bool = True
-    created_at: str = None
-    updated_at: str = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 @dataclass
 class PluginExecution:
@@ -47,13 +47,13 @@ class PluginExecution:
     plugin_id: str
     status: str  # running, completed, failed, cancelled
     start_time: str
-    end_time: str = None
+    end_time: Optional[str] = None
     progress: float = 0.0
-    results: Dict[str, Any] = None
-    error_message: str = None
-    parameters: Dict[str, Any] = None
-    input_datasets: List[str] = None
-    output_files: List[str] = None
+    results: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+    input_datasets: Optional[List[str]] = None
+    output_files: Optional[List[str]] = None
 
 class PluginService:
     """Comprehensive plugin management and execution service"""
@@ -81,13 +81,37 @@ class PluginService:
         """
         try:
             plugin_id = manifest_data.get('plugin_id') or f"plugin_{uuid.uuid4().hex[:8]}"
-            
+            # Remove plugin_id from manifest_data to avoid multiple values error
+            manifest_data_clean = dict(manifest_data)
+            if 'plugin_id' in manifest_data_clean:
+                del manifest_data_clean['plugin_id']
+            # Ensure all required fields are present and not None
+            required_fields = [
+                'name', 'version', 'description', 'author', 'category', 'tags',
+                'required_datasets', 'required_ai_models', 'outputs', 'lifecycle_stages',
+                'parameters', 'dependencies', 'entry_point'
+            ]
+            str_fields = ['name', 'version', 'description', 'author', 'category', 'entry_point']
+            dict_fields = ['parameters']
+            for field in required_fields:
+                if field not in manifest_data_clean or manifest_data_clean[field] is None:
+                    if field in ['tags', 'required_datasets', 'required_ai_models', 'outputs', 'lifecycle_stages', 'dependencies']:
+                        manifest_data_clean[field] = []
+                    elif field in dict_fields:
+                        manifest_data_clean[field] = {}
+                    elif field in str_fields:
+                        manifest_data_clean[field] = ""
+                    else:
+                        manifest_data_clean[field] = ""
+            # Ensure parameters is always a dict
+            if manifest_data_clean['parameters'] is None:
+                manifest_data_clean['parameters'] = {}
             # Create manifest
             manifest = PluginManifest(
                 plugin_id=plugin_id,
                 created_at=datetime.now().isoformat(),
                 updated_at=datetime.now().isoformat(),
-                **manifest_data
+                **manifest_data_clean
             )
             
             # Save manifest
@@ -104,9 +128,9 @@ class PluginService:
             raise
     
     def list_plugins(self, 
-                    category: str = None,
-                    tags: List[str] = None,
-                    is_active: bool = None) -> List[PluginManifest]:
+                    category: Optional[str] = None,
+                    tags: Optional[List[str]] = None,
+                    is_active: Optional[bool] = None) -> List[PluginManifest]:
         """List plugins with optional filtering"""
         plugins = list(self.plugins.values())
         
@@ -156,8 +180,11 @@ class PluginService:
                 plugin_id=plugin_id,
                 status="running",
                 start_time=datetime.now().isoformat(),
-                parameters=parameters or {},
-                input_datasets=list(input_datasets.keys()) if input_datasets else []
+                parameters=parameters if parameters is not None else {},
+                input_datasets=list(input_datasets.keys()) if input_datasets else [],
+                results=None,
+                error_message=None,
+                output_files=[]
             )
             
             # Store execution
@@ -475,25 +502,71 @@ def output(all_results: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str,
                 try:
                     with open(manifest_file, 'r') as f:
                         manifest_data = json.load(f)
-                    
+                    # Ensure all required fields are present and not None
+                    required_fields = [
+                        'plugin_id', 'name', 'version', 'description', 'author', 'category', 'tags',
+                        'required_datasets', 'required_ai_models', 'outputs', 'lifecycle_stages',
+                        'parameters', 'dependencies', 'entry_point', 'is_active', 'created_at', 'updated_at'
+                    ]
+                    str_fields = ['plugin_id', 'name', 'version', 'description', 'author', 'category', 'entry_point', 'created_at', 'updated_at']
+                    dict_fields = ['parameters']
+                    for field in required_fields:
+                        if field not in manifest_data or manifest_data[field] is None:
+                            if field in ['tags', 'required_datasets', 'required_ai_models', 'outputs', 'lifecycle_stages', 'dependencies']:
+                                manifest_data[field] = []
+                            elif field in dict_fields:
+                                manifest_data[field] = {}
+                            elif field in str_fields:
+                                manifest_data[field] = ""
+                            elif field == 'is_active':
+                                manifest_data[field] = True
+                            else:
+                                manifest_data[field] = ""
+                    # Ensure parameters is always a dict
+                    if manifest_data['parameters'] is None:
+                        manifest_data['parameters'] = {}
                     manifest = PluginManifest(**manifest_data)
                     self.plugins[manifest.plugin_id] = manifest
-                    
                 except Exception as e:
                     logger.error(f"Error loading manifest from {manifest_file}: {str(e)}")
-            
             # Load execution records
             for execution_file in self.plugins_path.glob("*_execution.json"):
                 try:
                     with open(execution_file, 'r') as f:
                         execution_data = json.load(f)
-                    
+                    # Ensure all required fields are present and not None
+                    exec_required_fields = [
+                        'execution_id', 'plugin_id', 'status', 'start_time', 'end_time', 'progress',
+                        'results', 'error_message', 'parameters', 'input_datasets', 'output_files'
+                    ]
+                    for field in exec_required_fields:
+                        if field not in execution_data or execution_data[field] is None:
+                            if field == 'progress':
+                                execution_data[field] = 0.0
+                            elif field == 'results':
+                                execution_data[field] = None
+                            elif field == 'error_message':
+                                execution_data[field] = None
+                            elif field == 'parameters':
+                                execution_data[field] = {}
+                            elif field == 'end_time':
+                                execution_data[field] = None
+                            elif field in ['input_datasets', 'output_files']:
+                                execution_data[field] = []
+                            else:
+                                execution_data[field] = ""
+                    # Ensure parameters is always a dict
+                    if execution_data['parameters'] is None:
+                        execution_data['parameters'] = {}
+                    # Ensure all str fields are not None
+                    str_fields_exec = ['execution_id', 'plugin_id', 'status', 'start_time', 'end_time']
+                    for field in str_fields_exec:
+                        if field in execution_data and execution_data[field] is None:
+                            execution_data[field] = ""
                     execution = PluginExecution(**execution_data)
                     self.executions[execution.execution_id] = execution
-                    
                 except Exception as e:
                     logger.error(f"Error loading execution from {execution_file}: {str(e)}")
-                    
         except Exception as e:
             logger.error(f"Error loading plugins: {str(e)}")
 

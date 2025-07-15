@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -22,6 +22,7 @@ from ..services.database_service import get_db
 from ..routers.admin import require_authenticated_user, require_admin_or_power
 from ..models import User
 from ..services.database_service import DatabaseService
+from app.models.registry.standards import DataStandard, Dataset
 
 logger = logging.getLogger(__name__)
 
@@ -2449,8 +2450,11 @@ async def get_compliance_levels():
 async def get_data_standard(standard_id: str):
     """Get specific data standard by ID"""
     if standard_id not in DATA_STANDARDS:
-        raise HTTPException(status_code=404, detail=f"Data standard '{standard_id}' not found")
-    
+        return {
+            "standard": None,
+            "id": standard_id,
+            "message": f"No data standard found for id '{standard_id}'"
+        }
     return {
         "standard": DATA_STANDARDS[standard_id],
         "id": standard_id
@@ -2501,21 +2505,15 @@ async def get_data_standards_statistics():
         "by_compliance_level": {},
         "by_governing_body": {}
     }
-    
-    # Count by category
     for standard in DATA_STANDARDS.values():
         category = standard.get('category', 'unknown')
         stats['by_category'][category] = stats['by_category'].get(category, 0) + 1
-        
         country = standard.get('country', 'unknown')
         stats['by_country'][country] = stats['by_country'].get(country, 0) + 1
-        
         compliance = standard.get('compliance_level', 'unknown')
         stats['by_compliance_level'][compliance] = stats['by_compliance_level'].get(compliance, 0) + 1
-        
         governing_body = standard.get('governing_body', 'unknown')
         stats['by_governing_body'][governing_body] = stats['by_governing_body'].get(governing_body, 0) + 1
-    
     return stats
 
 @router.get("/test")
@@ -4073,3 +4071,255 @@ async def get_performance_metrics(
             ]
         }
     }
+
+# Refactor: Dataset Designer Management
+@router.get("/designer")
+async def get_dataset_designers(
+    source_type: Optional[str] = None,
+    status: Optional[str] = None,
+    dataset_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get dataset designers with metadata"""
+    try:
+        query = """
+            SELECT * FROM design_enhanced.dataset_structures 
+            WHERE is_active = true
+        """
+        params = {}
+        if source_type:
+            query += " AND source_type = :source_type"
+            params['source_type'] = source_type
+        if status:
+            query += " AND status = :status"
+            params['status'] = status
+        if dataset_type:
+            query += " AND dataset_type = :dataset_type"
+            params['dataset_type'] = dataset_type
+        query += " ORDER BY created_at DESC"
+        result = db.execute(text(query), params).mappings()
+        designers = [dict(row) for row in result]
+        return {"designers": designers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving dataset designers: {str(e)}")
+
+@router.post("/designer")
+async def create_dataset_designer(
+    designer_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_power)
+):
+    """Create new dataset designer"""
+    try:
+        pass  # TODO: Implement logic here
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating dataset designer: {str(e)}")
+
+@router.get("/designers")
+async def get_dataset_designers_plural(
+    source_type: str = "",
+    status: str = "",
+    dataset_type: str = "",
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated_user)
+):
+    """Get dataset designers with metadata (plural endpoint for frontend compatibility)"""
+    return await get_dataset_designers(source_type, status, dataset_type, db, current_user)
+
+@router.post("/data-standards")
+async def create_data_standard(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    try:
+        data = await request.json()
+        results = []
+        def map_json_to_standard_fields(standard):
+            # Map incoming JSON to DB columns, with defaults and fallbacks
+            return DataStandard(
+                standard_code=standard.get("standard_code") or (standard.get("name") or standard.get("standard_name")).replace(" ", "_").lower(),
+                standard_name=standard.get("standard_name") or standard.get("name"),
+                standard_type=standard.get("standard_type") or "UK_Government",
+                governing_body=standard.get("governing_body"),
+                description=standard.get("description"),
+                compliance_level=standard.get("compliance_level") or (standard.get("compliance", {}).get("level") if standard.get("compliance") else None),
+                version=standard.get("version"),
+                effective_date=standard.get("effective_date"),
+                expiry_date=standard.get("expiry_date"),
+                website_url=standard.get("official_link") or standard.get("website_url"),
+                contact_info=standard.get("contact_info", {}),
+                created_by=standard.get("created_by", "system"),
+                is_active=standard.get("is_active", True)
+            )
+        # If a list, import all
+        if isinstance(data, list):
+            for standard in data:
+                new_standard = map_json_to_standard_fields(standard)
+                db.add(new_standard)
+                db.commit()
+                db.refresh(new_standard)
+                results.append({"id": str(new_standard.standard_id), "standard_code": new_standard.standard_code, "standard_name": new_standard.standard_name})
+            return {"imported": len(results), "standards": results}
+        # If a dict, import one
+        elif isinstance(data, dict):
+            new_standard = map_json_to_standard_fields(data)
+            db.add(new_standard)
+            db.commit()
+            db.refresh(new_standard)
+            return {"id": str(new_standard.standard_id), "standard_code": new_standard.standard_code, "standard_name": new_standard.standard_name}
+        else:
+            raise HTTPException(status_code=400, detail="Input should be a dictionary or a list of dictionaries.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error importing data standard(s): {str(e)}")
+
+@router.put("/data-standards/{id}")
+async def update_data_standard(id: str, updates: dict, db: Session = Depends(get_db)):
+    standard = db.query(DataStandard).filter_by(id=id).first()
+    if not standard:
+        raise HTTPException(status_code=404, detail="Standard not found")
+    for k, v in updates.items():
+        setattr(standard, k, v)
+    db.commit()
+    db.refresh(standard)
+    return {"id": standard.id, "standard": updates}
+
+@router.post("/data-standards/{id}/fork")
+async def fork_data_standard(id: str, db: Session = Depends(get_db)):
+    parent = db.query(DataStandard).filter_by(id=id).first()
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent standard not found")
+    new_standard = DataStandard(
+        name=parent.name + " (Forked)",
+        description=parent.description,
+        governing_body=parent.governing_body,
+        version=str(float(parent.version) + 0.1),
+        parent_id=parent.id,
+        fields=parent.fields,
+    )
+    db.add(new_standard)
+    db.commit()
+    db.refresh(new_standard)
+    return {"id": new_standard.id, "standard": new_standard.name}
+
+@router.post("/data-standards/match")
+async def match_standard(fields: list, db: Session = Depends(get_db)):
+    # Placeholder: match by field name overlap
+    all_standards = db.query(DataStandard).all()
+    matches = []
+    input_field_names = set(f["name"].lower() for f in fields)
+    for std in all_standards:
+        std_field_names = set(f["name"].lower() for f in (std.fields or []))
+        overlap = len(input_field_names & std_field_names)
+        total = len(input_field_names | std_field_names)
+        confidence = overlap / total if total else 0
+        matches.append({
+            "standard_id": std.id,
+            "name": std.name,
+            "confidence": confidence,
+            "field_mapping": {fn: fn for fn in input_field_names & std_field_names},
+            "missing_fields": list(std_field_names - input_field_names),
+            "extra_fields": list(input_field_names - std_field_names)
+        })
+    matches.sort(key=lambda m: m["confidence"], reverse=True)
+    return {"matches": matches}
+
+@router.post("/datasets")
+async def create_dataset(dataset: dict, db: Session = Depends(get_db)):
+    new_dataset = Dataset(
+        name=dataset["name"],
+        description=dataset.get("description"),
+        standard_id=dataset["standard_id"],
+        standard_version=dataset.get("standard_version"),
+        upload_metadata=dataset.get("upload_metadata", {}),
+    )
+    db.add(new_dataset)
+    db.commit()
+    db.refresh(new_dataset)
+    return {"id": new_dataset.id, "dataset": dataset}
+
+@router.get("/datasets")
+async def list_datasets(db: Session = Depends(get_db)):
+    datasets = db.query(Dataset).all()
+    return [{
+        "id": d.id,
+        "name": d.name,
+        "description": d.description,
+        "standard_id": d.standard_id,
+        "standard_version": d.standard_version,
+        "created_at": d.created_at,
+        "is_active": d.is_active
+    } for d in datasets]
+
+@router.post("/ai/analyze-large-file")
+async def analyze_large_file(
+    file: UploadFile = File(...),
+    sample_size: int = Form(10000),
+    enable_ai: bool = Form(True),
+    enable_validation: bool = Form(True),
+    enable_standards: bool = Form(True)
+):
+    """AI-powered server-side analysis for large files (CSV, JSON, ZIP, etc.)"""
+    try:
+        print(f"[AI] Server-side analysis for file: {file.filename}")
+        file_size = 0
+        content_chunks = []
+        chunk_size = 1024 * 1024  # 1MB
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            content_chunks.append(chunk)
+            file_size += len(chunk)
+            if file_size > 10 * 1024 * 1024 * 1024:  # 10GB limit
+                raise HTTPException(status_code=413, detail="File too large for analysis (max 10GB)")
+        content = b''.join(content_chunks)
+        filename = file.filename or "uploaded_file"
+        file_extension = Path(filename).suffix.lower()
+        mime_type = file.content_type
+        # For large files, only analyze a sample
+        if file_size > 100 * 1024 * 1024:
+            print("Large file detected, analyzing sample only")
+            sample_content = content[:sample_size * 1024]
+            content = sample_content
+        # Analyze based on file type (reuse logic from /ai/analyze-file)
+        if file_extension == '.csv' or mime_type == 'text/csv':
+            analysis = detect_csv_format(content, filename)
+        elif file_extension == '.json' or mime_type == 'application/json':
+            analysis = detect_json_format(content, filename)
+        elif file_extension in ['.xml', '.gml'] or mime_type in ['application/xml', 'text/xml']:
+            analysis = detect_xml_format(content, filename)
+        elif file_extension == '.zip' or mime_type == 'application/zip':
+            analysis = detect_zip_format(content, filename)
+        else:
+            if content.startswith(b'{') or content.startswith(b'['):
+                analysis = detect_json_format(content, filename)
+            elif content.startswith(b'<'):
+                analysis = detect_xml_format(content, filename)
+            else:
+                analysis = detect_csv_format(content, filename)
+        if "error" in analysis:
+            raise HTTPException(status_code=400, detail=analysis["error"])
+        # Identify data standards if we have field analysis
+        if "field_analysis" in analysis:
+            standards = identify_data_standards(analysis["field_analysis"], filename)
+            analysis["identified_standards"] = standards
+        # Add file metadata
+        analysis["filename"] = file.filename
+        analysis["file_size"] = file_size
+        analysis["mime_type"] = mime_type
+        analysis["analysis_options"] = {
+            "sample_size": sample_size,
+            "enable_ai": enable_ai,
+            "enable_validation": enable_validation,
+            "enable_standards": enable_standards
+        }
+        return {
+            "success": True,
+            "analysis": analysis,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        print(f"[AI] Large file analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Large file analysis failed: {str(e)}")

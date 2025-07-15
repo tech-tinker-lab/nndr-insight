@@ -300,6 +300,17 @@ python ingest_nndr_properties.py
     - Includes: database connection, ad hoc SQL queries, data visualization, and a template for automated reporting scripts.
 - [ ] Expand the notebook with additional queries, visualizations, or reporting as needed for your workflow.
 
+## TODO: Backend Enhancements for Dataset Designer
+
+- Add data validation to Dataset Designer endpoints (e.g., field constraints, business rules)
+- Integrate Dataset Designer with a real database (replace in-memory store)
+- Implement advanced logic (e.g., relationships, field definitions, versioning, audit trails)
+- Add authentication/authorization to Dataset Designer endpoints if required
+- Expand automated tests for new endpoints and logic
+- Document API usage and models for team reference
+
+If you want to add more features (validation, database, advanced logic), we can continue with those next.
+
 # NNDR Insight Data Pipeline: Data Dictionary & Forecasting Guidance
 
 ## Data Dictionary

@@ -136,9 +136,13 @@ const AIDatasetTypeCreator = ({ onDatasetTypeCreated, onCancel }) => {
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
 
+  // Standards confirmation
+  const [standardsConfirmed, setStandardsConfirmed] = useState(false);
+
   const steps = [
     'Upload File',
     'AI Analysis',
+    'Standards Recognition',
     'Field Configuration',
     'Validation & Standards',
     'Review & Create'
@@ -1465,42 +1469,10 @@ const AIDatasetTypeCreator = ({ onDatasetTypeCreated, onCancel }) => {
   };
 
   const handleNext = () => {
-    if (activeStep === 0 && !file) {
-      toast.error('Please select a file first');
+    if (activeStep === 2 && !standardsConfirmed) {
+      toast.error('Please confirm the recognized standards before proceeding.');
       return;
     }
-    
-    if (activeStep === 1 && !analysis) {
-      toast.error('Please perform analysis first');
-      return;
-    }
-
-    // Validate before moving to next step
-    if (activeStep === 2) {
-      // Validate field configuration
-      const fieldErrors = [];
-      
-      if (fieldMappings.length === 0) {
-        fieldErrors.push('At least one field mapping is required');
-      }
-      
-      const emptyFieldNames = fieldMappings.filter(f => !f.field_name || !f.field_name.trim());
-      if (emptyFieldNames.length > 0) {
-        fieldErrors.push('All fields must have a valid field name');
-      }
-      
-      const primaryKeys = fieldMappings.filter(f => f.is_primary_key);
-      if (primaryKeys.length === 0) {
-        fieldErrors.push('At least one field must be marked as primary key');
-      }
-      
-      if (fieldErrors.length > 0) {
-        setErrors(fieldErrors);
-        toast.error('Please fix field configuration errors before proceeding');
-        return;
-      }
-    }
-
     if (activeStep === steps.length - 1) {
       createDatasetType();
     } else {
@@ -1628,6 +1600,14 @@ const AIDatasetTypeCreator = ({ onDatasetTypeCreated, onCancel }) => {
                   )}
                   
                   {index === 2 && (
+                    <StandardsRecognitionStep
+                      analysis={analysis}
+                      onConfirm={() => setStandardsConfirmed(true)}
+                      confirmed={standardsConfirmed}
+                    />
+                  )}
+                  
+                  {index === 3 && (
                     <FieldConfigurationStep
                       fieldMappings={fieldMappings}
                       onUpdateField={updateFieldMapping}
@@ -1637,7 +1617,7 @@ const AIDatasetTypeCreator = ({ onDatasetTypeCreated, onCancel }) => {
                     />
                   )}
                   
-                  {index === 3 && (
+                  {index === 4 && (
                     <ValidationStep
                       datasetType={datasetType}
                       setDatasetType={handleDatasetTypeChange}
@@ -1646,7 +1626,7 @@ const AIDatasetTypeCreator = ({ onDatasetTypeCreated, onCancel }) => {
                     />
                   )}
                   
-                  {index === 4 && (
+                  {index === 5 && (
                     <ReviewStep
                       datasetType={datasetType}
                       fieldMappings={fieldMappings}
@@ -1906,6 +1886,45 @@ const AnalysisStep = ({ file, analysis, loading, onAnalyze, analysisOptions }) =
         )}
       </Grid>
     </Grid>
+  </Box>
+);
+
+const StandardsRecognitionStep = ({ analysis, onConfirm, confirmed }) => (
+  <Box>
+    <Typography variant="h6" gutterBottom>
+      <AutoFixIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+      Standards Recognition
+    </Typography>
+    {analysis?.identified_standards && analysis.identified_standards.length > 0 ? (
+      <>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            The AI has identified the following data standards in your dataset. Please review and confirm before proceeding.
+          </Typography>
+        </Alert>
+        <List>
+          {analysis.identified_standards.map((standard, idx) => (
+            <ListItem key={idx}>
+              <ListItemText
+                primary={standard.name}
+                secondary={standard.description || standard.governing_body}
+              />
+            </ListItem>
+          ))}
+        </List>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={onConfirm}
+          disabled={confirmed}
+          sx={{ mt: 2 }}
+        >
+          {confirmed ? 'Standards Confirmed' : 'Confirm Standards'}
+        </Button>
+      </>
+    ) : (
+      <Alert severity="warning">No standards were identified by the AI. You may proceed to the next step.</Alert>
+    )}
   </Box>
 );
 

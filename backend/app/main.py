@@ -2,6 +2,8 @@ import os
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
+import logging
+
 # FastAPI entry point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,3 +39,12 @@ app.include_router(simple_etl.router)
 @app.get("/")
 def read_root():
     return {"message": "NNDR Insight Backend Running"}
+
+if __name__ == "__main__":
+    import uvicorn
+    logging.basicConfig(level=logging.INFO)
+    for route in app.routes:
+        path = getattr(route, 'path', str(route))
+        methods = getattr(route, 'methods', '')
+        logging.info(f"Route: {path} [{methods}] -> {getattr(route, 'endpoint', None)}")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
