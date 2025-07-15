@@ -8,6 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import upload, forecast, map, property_compare, tables, geospatial, analytics, admin, admin_user, ai_analysis, design_system, design_enhanced, ai_analysis_enhanced, plugin_marketplace, simple_etl
+from app.routers import mock_data
 
 app = FastAPI()
 
@@ -35,6 +36,7 @@ app.include_router(design_enhanced.router)
 app.include_router(ai_analysis_enhanced.router)
 app.include_router(plugin_marketplace.router)
 app.include_router(simple_etl.router)
+app.include_router(mock_data.router, prefix="/api")
 
 @app.get("/")
 def read_root():

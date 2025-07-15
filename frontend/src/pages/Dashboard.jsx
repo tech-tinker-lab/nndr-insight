@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Upload, CheckCircle, AlertCircle, TrendingUp, Search, BarChart2, FileText } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@mui/material';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { useNavigate } from 'react-router-dom';
+import { Upload, CheckCircle, AlertCircle, TrendingUp, Search, BarChart2, FileText, FileBarChart2, Info } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, Tooltip as MuiTooltip, Button, IconButton } from '@mui/material';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // --- In-memory demo data ---
 const demoForecastData = [
@@ -56,6 +57,7 @@ const demoDatasets = [
 
 export default function Dashboard() {
   const [datasets, setDatasets] = useState(demoDatasets);
+  const navigate = useNavigate();
 
   // Simulate upload/select
   const handleUpload = (key) => {
@@ -68,11 +70,28 @@ export default function Dashboard() {
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 space-y-8">
       {/* Welcome Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">South Cambridgeshire NNDR Intelligence Portal</h1>
-        <p className="text-lg text-gray-600 max-w-2xl">
-          Welcome! This platform provides accurate business rate income forecasting and helps identify currently non-rated properties for National Non Domestic Rates (NNDR). Please ensure all required datasets are loaded for full functionality. All data is processed securely and never leaves your council environment.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+            <BarChart2 className="w-8 h-8 text-blue-600" />
+            South Cambridgeshire NNDR Intelligence Portal
+          </h1>
+          <p className="text-lg text-gray-600 max-w-2xl">
+            Welcome! This platform provides accurate business rate income forecasting and helps identify currently non-rated properties for National Non Domestic Rates (NNDR). Please ensure all required datasets are loaded for full functionality. All data is processed securely and never leaves your council environment.
+          </p>
+        </div>
+        <MuiTooltip title="Build and export a custom report" arrow>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<FileBarChart2 />}
+            size="large"
+            onClick={() => navigate('/report-builder')}
+            sx={{ borderRadius: 2, fontWeight: 600 }}
+          >
+            Custom Report
+          </Button>
+        </MuiTooltip>
       </div>
 
       {/* Data Status Indicator */}
@@ -99,7 +118,18 @@ export default function Dashboard() {
                     {ds.status ? (
                       <span className="flex items-center text-green-600"><CheckCircle className="w-4 h-4 mr-1" />Loaded</span>
                     ) : (
-                      <button onClick={() => handleUpload(ds.key)} className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium"><Upload className="w-4 h-4 mr-1" />Upload/Select</button>
+                      <MuiTooltip title={`Upload or select your ${ds.name} file`} arrow>
+                        <Button
+                          onClick={() => handleUpload(ds.key)}
+                          variant="outlined"
+                          color="primary"
+                          startIcon={<Upload />}
+                          size="small"
+                          sx={{ borderRadius: 2, fontWeight: 500 }}
+                        >
+                          Upload/Select
+                        </Button>
+                      </MuiTooltip>
                     )}
                   </div>
                 </div>
@@ -113,29 +143,56 @@ export default function Dashboard() {
       {/* Main Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Business Rate Income Forecasting */}
-        <Card variant="outlined">
-          <CardHeader title={<span className="flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-blue-600" />Business Rate Income Forecasting</span>} />
-          <CardContent>
-            <div className="mb-2 text-gray-700 text-sm">
-              Upload your NNDR property list and historic billing data to generate accurate forecasts. The system uses advanced models to predict income trends and highlight risks.
-            </div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={demoForecastData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="income" stroke="#2563eb" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 text-xs text-gray-500">
-              <strong>Required data:</strong> NNDR Property List (CSV/Excel), Historic Billing Data (CSV/Excel, optional for improved accuracy).<br />
-              <strong>Source:</strong> Civica/Idox, council finance system.
-            </div>
-          </CardContent>
-        </Card>
+        <MuiTooltip title="View detailed forecast breakdown and export options" arrow>
+          <Card
+            variant="outlined"
+            className="transition-shadow hover:shadow-lg cursor-pointer border-blue-300 border-2"
+            onClick={() => navigate('/forecast/1')}
+            sx={{ position: 'relative', overflow: 'visible' }}
+          >
+            <CardHeader
+              title={<span className="flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-blue-600" />Business Rate Income Forecasting</span>}
+              action={
+                <MuiTooltip title="View details" arrow>
+                  <IconButton color="primary" onClick={e => { e.stopPropagation(); navigate('/forecast/1'); }}>
+                    <Info />
+                  </IconButton>
+                </MuiTooltip>
+              }
+            />
+            <CardContent>
+              <div className="mb-2 text-gray-700 text-sm">
+                Upload your NNDR property list and historic billing data to generate accurate forecasts. The system uses advanced models to predict income trends and highlight risks.
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={demoForecastData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="income" stroke="#2563eb" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-4 text-xs text-gray-500">
+                <strong>Required data:</strong> NNDR Property List (CSV/Excel), Historic Billing Data (CSV/Excel, optional for improved accuracy).<br />
+                <strong>Source:</strong> Civica/Idox, council finance system.
+              </div>
+              <MuiTooltip title="Go to detailed forecast view" arrow>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<TrendingUp />}
+                  sx={{ mt: 2, borderRadius: 2, fontWeight: 600 }}
+                  onClick={e => { e.stopPropagation(); navigate('/forecast/1'); }}
+                >
+                  View Details
+                </Button>
+              </MuiTooltip>
+            </CardContent>
+          </Card>
+        </MuiTooltip>
 
         {/* Non-Rated Properties Identification */}
         <Card variant="outlined">
@@ -156,12 +213,20 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {demoNonRated.map((row, idx) => (
-                    <tr key={idx} className="border-b last:border-0">
-                      <td className="px-2 py-1 font-mono">{row.uprn}</td>
-                      <td className="px-2 py-1">{row.address}</td>
-                      <td className="px-2 py-1">{row.type}</td>
-                      <td className="px-2 py-1 text-red-600">{row.reason}</td>
-                    </tr>
+                    <MuiTooltip key={idx} title="Drill down to area details" arrow>
+                      <tr
+                        className="border-b last:border-0 cursor-pointer hover:bg-blue-50 transition"
+                        onClick={() => navigate('/area/1')}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td className="px-2 py-1 font-mono flex items-center gap-1">
+                          <Search className="w-4 h-4 text-blue-400 mr-1" />{row.uprn}
+                        </td>
+                        <td className="px-2 py-1">{row.address}</td>
+                        <td className="px-2 py-1">{row.type}</td>
+                        <td className="px-2 py-1 text-red-600">{row.reason}</td>
+                      </tr>
+                    </MuiTooltip>
                   ))}
                 </tbody>
               </table>

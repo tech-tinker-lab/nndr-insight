@@ -21,6 +21,10 @@ import DatasetCreationWizard from './pages/DatasetCreationWizard';
 import DatasetRegistry from './pages/DatasetRegistry';
 import NNDRForecasting from './pages/NNDRForecasting';
 import NNDRIndicators from './pages/NNDRIndicators';
+import ForecastDetail from './pages/ForecastDetail';
+import AreaDrilldown from './pages/AreaDrilldown';
+import IndicatorAnalysis from './pages/IndicatorAnalysis';
+import ReportBuilder from './pages/ReportBuilder';
 
 function App() {
   return (
@@ -58,6 +62,10 @@ function App() {
                       <Route path="/datasets" element={<DatasetRegistry />} />
                       <Route path="/nndr-forecasting" element={<NNDRForecasting />} />
                       <Route path="/nndr-indicators" element={<NNDRIndicators />} />
+                      <Route path="/forecast/:id" element={<ForecastDetail />} />
+                      <Route path="/area/:id" element={<AreaDrilldown />} />
+                      <Route path="/indicator/:id" element={<IndicatorAnalysis />} />
+                      <Route path="/report-builder" element={<ReportBuilder />} />
                     </Routes>
                   </Layout>
                 </ProtectedRoute>
