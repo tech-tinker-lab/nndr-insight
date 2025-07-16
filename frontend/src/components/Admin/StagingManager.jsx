@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import { useUser } from '../../context/UserContext';
+import { useUser } from '../../context/UserContext.tsx';
 import StagingTableAutocomplete from '../StagingTableAutocomplete';
 
 const HISTORY_PAGE_SIZE = 25;

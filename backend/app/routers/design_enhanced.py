@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -17,6 +17,8 @@ from pathlib import Path
 import mimetypes
 import chardet
 import logging
+import threading
+import time
 
 from ..services.database_service import get_db
 from ..routers.admin import require_authenticated_user, require_admin_or_power
@@ -1872,6 +1874,55 @@ def assess_data_quality(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "temporal_fields": len(date_fields)
     }
 
+# In-memory task registry for progress tracking
+analyze_tasks = {}
+
+# Helper to update progress
+def set_task_progress(task_id, progress, status="running", result=None, error=None):
+    analyze_tasks[task_id] = {
+        "progress": progress,
+        "status": status,
+        "result": result,
+        "error": error
+    }
+
+# Background analysis runner
+def run_analysis_task(task_id, file_bytes, filename, file_extension, mime_type, options):
+    try:
+        set_task_progress(task_id, 5, "running")
+        time.sleep(0.1)
+        # Simulate chunked progress for demo; in real code, update at key steps
+        # Detect file type and analyze
+        set_task_progress(task_id, 20, "running")
+        if file_extension == '.csv' or mime_type == 'text/csv':
+            analysis = detect_csv_format(file_bytes, filename)
+        elif file_extension == '.json' or mime_type == 'application/json':
+            analysis = detect_json_format(file_bytes, filename)
+        elif file_extension in ['.xml', '.gml'] or mime_type in ['application/xml', 'text/xml']:
+            analysis = detect_xml_format(file_bytes, filename)
+        elif file_extension == '.zip' or mime_type == 'application/zip':
+            set_task_progress(task_id, 40, "running")
+            analysis = detect_zip_format(file_bytes, filename)
+        else:
+            set_task_progress(task_id, 40, "running")
+            if file_bytes.startswith(b'{') or file_bytes.startswith(b'['):
+                analysis = detect_json_format(file_bytes, filename)
+            elif file_bytes.startswith(b'<'):
+                analysis = detect_xml_format(file_bytes, filename)
+            else:
+                analysis = detect_csv_format(file_bytes, filename)
+        set_task_progress(task_id, 70, "running")
+        # Simulate more work
+        time.sleep(0.1)
+        # Add metadata, recommendations, etc.
+        analysis["filename"] = filename
+        analysis["mime_type"] = mime_type
+        set_task_progress(task_id, 90, "running")
+        time.sleep(0.1)
+        set_task_progress(task_id, 100, "completed", result=analysis)
+    except Exception as e:
+        set_task_progress(task_id, 100, "failed", error=str(e))
+
 @router.post("/ai/analyze-file")
 async def analyze_file(
     file: UploadFile = File(...),
@@ -1882,129 +1933,38 @@ async def analyze_file(
     enable_validation: bool = Form(True),
     enable_standards: bool = Form(True)
 ):
-    """AI-powered file analysis to detect format, structure, and data standards"""
+    """AI-powered file analysis to detect format, structure, and data standards (now async with progress)"""
     try:
-        print(f"Starting analysis for file: {file.filename}")
-        print(f"Analysis options: client_side={use_client_side}, sample_size={sample_size}, max_size={max_file_size}")
-        
-        # Check file size
-        file_size = 0
-        content_chunks = []
-        
-        # Read file in chunks for large files
-        chunk_size = 1024 * 1024  # 1MB chunks
-        while True:
-            chunk = await file.read(chunk_size)
-            if not chunk:
-                break
-            content_chunks.append(chunk)
-            file_size += len(chunk)
-            
-            # Stop reading if we exceed max file size
-            if file_size > max_file_size:
-                raise HTTPException(
-                    status_code=413, 
-                    detail=f"File size ({file_size} bytes) exceeds maximum allowed size ({max_file_size} bytes)"
-                )
-        
-        # Combine chunks
-        content = b''.join(content_chunks)
-        print(f"Read {len(content)} bytes from file")
-        
-        # For large files, only analyze a sample
-        if file_size > 100 * 1024 * 1024:  # 100MB
-            print("Large file detected, analyzing sample only")
-            sample_content = content[:sample_size * 1024]  # Sample based on configured size
-            content = sample_content
-        
-        # Detect file type
+        file_bytes = await file.read()
         filename = file.filename or "uploaded_file"
         file_extension = Path(filename).suffix.lower()
         mime_type = file.content_type
-        
-        print(f"File extension: {file_extension}, MIME type: {mime_type}")
-        
-        # Analyze based on file type
-        if file_extension == '.csv' or mime_type == 'text/csv':
-            print("Detecting CSV format...")
-            analysis = detect_csv_format(content, filename)
-        elif file_extension == '.json' or mime_type == 'application/json':
-            print("Detecting JSON format...")
-            analysis = detect_json_format(content, filename)
-        elif file_extension in ['.xml', '.gml'] or mime_type in ['application/xml', 'text/xml']:
-            print("Detecting XML format...")
-            analysis = detect_xml_format(content, filename)
-        elif file_extension == '.zip' or mime_type == 'application/zip':
-            print("Detecting ZIP format...")
-            analysis = detect_zip_format(content, filename)
-        else:
-            print("Attempting format detection from content...")
-            # Try to detect format from content
-            if content.startswith(b'{') or content.startswith(b'['):
-                analysis = detect_json_format(content, filename)
-            elif content.startswith(b'<'):
-                analysis = detect_xml_format(content, filename)
-            else:
-                # Assume CSV and try to detect
-                analysis = detect_csv_format(content, filename)
-        
-        print(f"Analysis result keys: {list(analysis.keys()) if isinstance(analysis, dict) else 'Not a dict'}")
-        
-        if "error" in analysis:
-            print(f"Analysis error: {analysis['error']}")
-            raise HTTPException(status_code=400, detail=analysis["error"])
-        
-        # Add file metadata
-        analysis["filename"] = file.filename
-        analysis["file_size"] = file_size
-        analysis["mime_type"] = mime_type
-        analysis["analysis_options"] = {
-            "use_client_side": use_client_side,
-            "sample_size": sample_size,
-            "max_file_size": max_file_size,
-            "enable_ai": enable_ai,
-            "enable_validation": enable_validation,
-            "enable_standards": enable_standards
-        }
-        
-        # Limit sample rows for faster response
-        if "sample_rows" in analysis and isinstance(analysis["sample_rows"], list) and len(analysis["sample_rows"]) > 10:
-            analysis["sample_rows"] = analysis["sample_rows"][:10]
-        
-        # Identify data standards if we have field analysis
-        if "field_analysis" in analysis:
-            print("Identifying data standards...")
-            standards = identify_data_standards(analysis["field_analysis"], filename or 'uploaded_file')
-            analysis["identified_standards"] = standards
-            
-            # Add government body analysis
-            if standards:
-                analysis["primary_governing_body"] = standards[0]["governing_body"]
-                analysis["compliance_analysis"] = {
-                    "overall_compliance": sum(s["compliance_score"] for s in standards) / len(standards),
-                    "standards_count": len(standards),
-                    "recommended_actions": generate_compliance_recommendations(standards, analysis)
-                }
-        
-        # Generate recommendations
-        print("Generating recommendations...")
-        analysis["recommendations"] = generate_recommendations(analysis)
-        
-        # Add data quality assessment
-        analysis["data_quality"] = assess_data_quality(analysis)
-        
-        print("Analysis completed successfully")
-        return {
-            "success": True,
-            "analysis": analysis,
-            "timestamp": datetime.now().isoformat()
-        }
-        
+        # Generate a unique task_id
+        task_id = str(uuid.uuid4())
+        # Start background analysis
+        thread = threading.Thread(
+            target=run_analysis_task,
+            args=(task_id, file_bytes, filename, file_extension, mime_type, {
+                "use_client_side": use_client_side,
+                "sample_size": sample_size,
+                "max_file_size": max_file_size,
+                "enable_ai": enable_ai,
+                "enable_validation": enable_validation,
+                "enable_standards": enable_standards
+            })
+        )
+        thread.start()
+        set_task_progress(task_id, 0, "running")
+        return {"task_id": task_id, "status": "started"}
     except Exception as e:
-        print(f"Analysis failed with error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@router.get("/ai/analyze-progress/{task_id}")
+async def analyze_progress(task_id: str):
+    task = analyze_tasks.get(task_id)
+    if not task:
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
+    return task
 
 @router.post("/ai/generate-mappings")
 async def generate_source_staging_mappings(

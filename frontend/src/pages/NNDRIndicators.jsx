@@ -144,7 +144,9 @@ const NNDRIndicators = () => {
                     <CardContent>
                       <Typography variant="subtitle2" color="text.secondary">{card.label}</Typography>
                       <Typography variant="h5" fontWeight={700}>{card.value}</Typography>
-                      <Typography variant="body2" color={card.change.startsWith('+') ? 'success.main' : 'error.main'}>{card.change}</Typography>
+                      {typeof card.change === 'string' ? (
+                        <Typography variant="body2" color={card.change.startsWith('+') ? 'success.main' : 'error.main'}>{card.change}</Typography>
+                      ) : null}
                     </CardContent>
                   </Card>
                 </Grid>

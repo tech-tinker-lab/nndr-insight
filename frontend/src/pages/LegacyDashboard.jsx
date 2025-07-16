@@ -174,26 +174,26 @@ export default function LegacyDashboard() {
         ))}
       </div>
 
-      {/* Charts Grid */}
+      {/* Charts Grid - By Sector */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Regional Coverage Chart */}
+        {/* Sector Breakdown Pie Chart */}
         <div className="bg-white shadow rounded-lg p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Regional Coverage</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Properties by Sector</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={chartData}
+                  data={sectorBreakdown}
+                  dataKey="properties"
+                  nameKey="sector"
                   cx="50%"
                   cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   outerRadius={80}
+                  label={({ sector, percent }) => `${sector} ${(percent * 100).toFixed(0)}%`}
                   fill="#8884d8"
-                  dataKey="value"
                 >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  {sectorBreakdown.map((entry, idx) => (
+                    <Cell key={`cell-${idx}`} fill={["#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#EF4444"][idx % 5]} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -201,22 +201,86 @@ export default function LegacyDashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-
-        {/* Data Growth Trend */}
+        {/* Sector Breakdown Bar Chart */}
         <div className="bg-white shadow rounded-lg p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Data Growth Trend</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Total Rateable Value by Sector</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendData}>
+              <BarChart data={sectorBreakdown}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
+                <XAxis dataKey="sector" />
                 <YAxis />
                 <Tooltip />
-                <Line type="monotone" dataKey="properties" stroke="#3B82F6" strokeWidth={2} />
-                <Line type="monotone" dataKey="postcodes" stroke="#10B981" strokeWidth={2} />
-              </LineChart>
+                <Bar dataKey="totalRV" fill="#3B82F6" />
+              </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      </div>
+
+      {/* Comprehensive Data Tables Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Sector Breakdown Table */}
+        <div className="bg-white shadow rounded-lg p-6 overflow-x-auto">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Sector Breakdown</h3>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-4">Sector</th>
+                <th className="py-2 pr-4">Properties</th>
+                <th className="py-2 pr-4">Median RV</th>
+                <th className="py-2 pr-4">Total RV</th>
+                <th className="py-2 pr-4">% with Relief</th>
+                <th className="py-2 pr-4">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectorBreakdown.map((row, idx) => (
+                <tr key={row.sector} className="border-b last:border-0">
+                  <td className="py-2 pr-4 font-semibold">{row.sector}</td>
+                  <td className="py-2 pr-4">{row.properties.toLocaleString()}</td>
+                  <td className="py-2 pr-4">£{row.medianRV.toLocaleString()}</td>
+                  <td className="py-2 pr-4">£{row.totalRV.toLocaleString()}</td>
+                  <td className="py-2 pr-4 flex items-center gap-1">
+                    {row.percentWithRelief}%
+                    {/* +/- indicator: green up for >40, red down for <40 */}
+                    {row.percentWithRelief >= 40 ? (
+                      <span className="text-green-600 ml-1">+<svg className="inline h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg></span>
+                    ) : (
+                      <span className="text-red-600 ml-1">-<svg className="inline h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg></span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">{row.notes}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {/* Top Ratepayers Table */}
+        <div className="bg-white shadow rounded-lg p-6 overflow-x-auto">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Top Ratepayers</h3>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-4">Name</th>
+                <th className="py-2 pr-4">Sector</th>
+                <th className="py-2 pr-4">Rateable Value</th>
+                <th className="py-2 pr-4">Address</th>
+                <th className="py-2 pr-4">Reliefs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topRatepayers.slice(0, 8).map((row, idx) => (
+                <tr key={row.name} className="border-b last:border-0">
+                  <td className="py-2 pr-4 font-semibold">{row.name}</td>
+                  <td className="py-2 pr-4">{row.sector}</td>
+                  <td className="py-2 pr-4">£{row.rv.toLocaleString()}</td>
+                  <td className="py-2 pr-4">{row.address}</td>
+                  <td className="py-2 pr-4">{row.reliefs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 

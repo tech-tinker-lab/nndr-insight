@@ -10,9 +10,9 @@ import Maps from './pages/Maps';
 import Upload from './pages/Upload';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
-import Login from './pages/Login';
+import Login from './pages/Login.tsx';
 import ProtectedRoute from './components/ProtectedRoute';
-import { AuthProvider } from './context/UserContext';
+import { AuthProvider } from './context/UserContext.tsx';
 import StagedData from './pages/StagedData';
 import MasterData from './pages/MasterData';
 import DatasetStructures from './pages/DesignSystemEnhanced';
@@ -25,6 +25,8 @@ import ForecastDetail from './pages/ForecastDetail';
 import AreaDrilldown from './pages/AreaDrilldown';
 import IndicatorAnalysis from './pages/IndicatorAnalysis';
 import ReportBuilder from './pages/ReportBuilder';
+import LegacyDashboard from './pages/LegacyDashboard';
+import DataRequirements from './pages/DataRequirements';
 
 function App() {
   return (
@@ -40,6 +42,8 @@ function App() {
                   <Layout>
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
+                      <Route path="/legacy-dashboard" element={<LegacyDashboard />} />
+                      <Route path="/data-requirements" element={<DataRequirements />} />
                       <Route path="/geospatial" element={<Geospatial />} />
                       <Route path="/analytics" element={<Analytics />} />
                       <Route path="/properties" element={<Properties />} />

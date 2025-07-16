@@ -4,10 +4,10 @@ import {
   Home, Globe, BarChart3, Building2, Map, Upload, Settings, Database, FileText, Shield, Palette, GitBranch, Sparkles, BookOpen, Plus
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useUser } from '../../context/UserContext';
+import { useUser } from '../../context/UserContext.tsx';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: Home },
+  { name: 'Dashboard', href: '/', icon: BarChart3 },
   { name: 'Geospatial', href: '/geospatial', icon: Globe },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'NNDR Forecasting', href: '/nndr-forecasting', icon: BarChart3 },
@@ -22,6 +22,7 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Staged Data', href: '/admin', icon: Shield },
   { name: 'Master Data', href: '/master', icon: Database },
+  { name: 'Legacy Dashboard', href: '/legacy-dashboard', icon: BarChart3 },
 ];
 
 const dataNavigation = [
@@ -82,6 +83,40 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }) {
                 </Link>
               );
             })}
+        </div>
+        {/* Settings Section */}
+        <div className="mt-8">
+          <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Settings
+          </h3>
+          <div className="mt-2 space-y-1">
+            <Link
+              to="/data-requirements"
+              className={clsx(
+                'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                location.pathname === '/data-requirements'
+                  ? 'bg-blue-100 text-blue-700 border-r-2 border-blue-700'
+                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+              )}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <FileText className={clsx('mr-3 h-5 w-5', location.pathname === '/data-requirements' ? 'text-blue-700' : 'text-gray-400 group-hover:text-gray-500')} />
+              Data Requirements & Guidelines
+            </Link>
+            <Link
+              to="/settings"
+              className={clsx(
+                'group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                location.pathname === '/settings'
+                  ? 'bg-blue-100 text-blue-700 border-r-2 border-blue-700'
+                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+              )}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <Settings className={clsx('mr-3 h-5 w-5', location.pathname === '/settings' ? 'text-blue-700' : 'text-gray-400 group-hover:text-gray-500')} />
+              Settings
+            </Link>
+          </div>
         </div>
         <div className="mt-8">
           <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">

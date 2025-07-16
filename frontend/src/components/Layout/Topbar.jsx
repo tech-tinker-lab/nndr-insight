@@ -1,5 +1,5 @@
 import React from "react";
-import { useUser } from "../../context/UserContext";
+import { useUser } from "../../context/UserContext.tsx";
 import { Menu } from "@headlessui/react";
 import { User as UserIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
